@@ -1,0 +1,41 @@
+# Normalize line endings, allow git to detect text vs binary
+* text=auto eol=lf
+
+# Source
+*.rs text eol=lf
+*.ts text eol=lf
+*.js text eol=lf
+*.svelte text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.sh text eol=lf
+
+# Windows-only scripts keep CRLF
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary / package assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.msi binary
+*.dmg binary
+*.AppImage binary
+*.deb binary
+
+# Lockfiles: keep as-is, don't diff noisily
+Cargo.lock -diff
+package-lock.json -diff
+pnpm-lock.yaml -diff
+
+# Linguist: don't count generated/vendored dirs as repo language stats
+src-tauri/gen/* linguist-generated=true
