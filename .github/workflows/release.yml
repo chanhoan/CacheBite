@@ -1,0 +1,108 @@
+name: Release packages
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      production_macos_signing:
+        description: Use the protected signing environment for a notarized macOS build
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            bundles: nsis,msi
+            artifact: windows-installers
+            paths: |
+              src-tauri/target/release/bundle/nsis/*
+              src-tauri/target/release/bundle/msi/*
+          - os: macos-latest
+            bundles: dmg
+            artifact: macos-unsigned-validation-dmg
+            paths: src-tauri/target/release/bundle/dmg/*
+          - os: ubuntu-latest
+            bundles: appimage
+            artifact: linux-appimage
+            paths: src-tauri/target/release/bundle/appimage/*
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with: { version: 10.15.1 }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: 22, cache: pnpm }
+      - uses: dtolnay/rust-toolchain@46511b1c83438f0dd37c02d843619ece5a4abb5b # 1.97.1
+      - name: Install Linux packaging prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:ci
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --all-features
+      - run: pnpm tauri build --bundles ${{ matrix.bundles }}
+      - name: Create SHA-256 checksums (Unix)
+        if: runner.os != 'Windows'
+        run: find src-tauri/target/release/bundle -type f -print0 | sort -z | xargs -0 shasum -a 256 > SHA256SUMS.txt
+      - name: Create SHA-256 checksums (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Get-ChildItem src-tauri/target/release/bundle -Recurse -File | Get-FileHash -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path)" } | Set-Content SHA256SUMS.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.paths }}
+            SHA256SUMS.txt
+          if-no-files-found: error
+
+  signed-notarized-macos:
+    if: github.event_name == 'workflow_dispatch' && inputs.production_macos_signing
+    runs-on: macos-latest
+    timeout-minutes: 60
+    environment: production-macos-signing
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with: { version: 10.15.1 }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: 22, cache: pnpm }
+      - uses: dtolnay/rust-toolchain@46511b1c83438f0dd37c02d843619ece5a4abb5b # 1.97.1
+      - run: pnpm install --frozen-lockfile
+      - name: Validate protected signing inputs
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: test -n "$APPLE_CERTIFICATE" && test -n "$APPLE_CERTIFICATE_PASSWORD" && test -n "$APPLE_SIGNING_IDENTITY" && test -n "$APPLE_ID" && test -n "$APPLE_PASSWORD" && test -n "$APPLE_TEAM_ID"
+      - name: Build signed and notarized DMG
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: pnpm tauri build --bundles dmg
+      - run: find src-tauri/target/release/bundle/dmg -type f -print0 | sort -z | xargs -0 shasum -a 256 > SHA256SUMS.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-signed-notarized-dmg
+          path: |
+            src-tauri/target/release/bundle/dmg/*
+            SHA256SUMS.txt
+          if-no-files-found: error

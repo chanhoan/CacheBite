@@ -50,3 +50,4 @@ coverage/
 
 # Misc build
 *.tsbuildinfo
+artifacts/
