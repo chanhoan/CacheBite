@@ -255,7 +255,7 @@ async fn wsl_codex_times_out_and_reaps_hanging_launcher() {
     let executable = root.path().join("fake-wsl.exe");
     let collector = WslCodexCollector::with_timeout_for_test(
         WslCommandFactory::with_executable_for_test(executable),
-        Duration::from_millis(10),
+        Duration::from_millis(100),
     );
     assert_eq!(
         collector.collect().await,
