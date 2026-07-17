@@ -19,19 +19,3 @@ export interface PanelProviderModel {
   readonly source: string;
   readonly isCached: boolean;
 }
-
-const loading = (provider: Provider): PanelProviderModel => ({
-  provider,
-  system: 'loading',
-  stale: false,
-  planType: null,
-  session: { usedPercent: null, severity: 'unknown', resetsAt: null },
-  weekly: { usedPercent: null, severity: 'unknown', resetsAt: null },
-  capturedAt: null,
-  source: provider === 'claude' ? 'oauth_api' : 'cli_rpc',
-  isCached: false,
-});
-export const initialPanelProviders = Object.freeze({
-  claude: loading('claude'),
-  codex: loading('codex'),
-});

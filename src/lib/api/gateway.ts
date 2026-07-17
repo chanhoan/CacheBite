@@ -1,3 +1,4 @@
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import type {
@@ -51,6 +52,7 @@ export type CapabilityDiagnostic =
   | { readonly status: 'available' }
   | { readonly status: 'unavailable'; readonly reason: string };
 export interface PlatformCapabilities {
+  readonly os: 'macos' | 'windows' | 'linux';
   readonly always_on_top: CapabilityDiagnostic;
   readonly fullscreen_detection: CapabilityDiagnostic;
   readonly autostart: CapabilityDiagnostic;
@@ -70,6 +72,7 @@ export interface AppGateway {
     next: (state: ProviderBackendStateWire) => void,
   ): Promise<() => void>;
   getSettings(): Promise<AppSettings>;
+  listenSettings(next: (settings: AppSettings) => void): Promise<() => void>;
   getPetPackage(): Promise<PetPackageModel>;
   getPlatformCapabilities(): Promise<PlatformCapabilities>;
   updateSettings(settings: AppSettings): Promise<AppSettings>;
@@ -148,9 +151,17 @@ export const tauriGateway: AppGateway = {
   async getSettings() {
     return fromSettings(await invokeNative<SettingsWire>('get_settings'));
   },
+  async listenSettings(next) {
+    return listen<SettingsWire>('settings-updated', (event) =>
+      next(fromSettings(event.payload)),
+    );
+  },
   async getPetPackage() {
     const wire = await invokeNative<PetPackageWire>('get_pet_package');
-    return { manifest: wire.manifest, assetBaseUrl: wire.asset_base_url };
+    return {
+      manifest: wire.manifest,
+      assetBaseUrl: `${convertFileSrc(wire.asset_base_url).replace(/\/$/, '')}/`,
+    };
   },
   getPlatformCapabilities: () => invokeNative('get_platform_capabilities'),
   async updateSettings(settings) {

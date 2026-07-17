@@ -78,7 +78,7 @@ describe('domain presentation rules', () => {
     ['2026-07-16T11:40:00Z', false, 'active'],
     ['2026-07-16T11:39:59.999Z', true, 'active'],
     ['2026-07-16T11:30:00Z', true, 'active'],
-    ['2026-07-16T11:29:59.999Z', false, 'error'],
+    ['2026-07-16T11:29:59.999Z', true, 'active'],
   ] as const)('derives freshness at %s', (capturedAt, stale, system) => {
     const updated = applyProviderUpdate(
       createProviderState('claude'),
@@ -91,7 +91,7 @@ describe('domain presentation rules', () => {
     });
   });
 
-  it('keeps an active snapshot on fetch failure and expires using the failure class', () => {
+  it('keeps cached usage visible and stale after a fetch failure', () => {
     const initial = applyProviderUpdate(
       createProviderState('claude'),
       snapshot(),
@@ -103,9 +103,11 @@ describe('domain presentation rules', () => {
       NOW,
     ).state;
     expect(derivePetUiState(failed, NOW).system).toBe('active');
-    expect(derivePetUiState(failed, NOW + 30 * 60_000 + 1).system).toBe(
-      'offline',
-    );
+    expect(derivePetUiState(failed, NOW + 30 * 60_000 + 1)).toMatchObject({
+      system: 'active',
+      stale: true,
+      sessionSeverity: 'ok',
+    });
   });
 
   it.each([
@@ -162,14 +164,15 @@ describe('domain presentation rules', () => {
     },
   );
 
-  it('uses an internal error when a snapshot expires without a recorded failure', () => {
+  it('keeps an expired snapshot visible as stale without a recorded failure', () => {
     const state = applyProviderUpdate(
       createProviderState('claude'),
       snapshot(),
       NOW,
     ).state;
     expect(derivePetUiState(state, NOW + 30 * 60_000 + 1)).toMatchObject({
-      system: 'error',
+      system: 'active',
+      stale: true,
     });
   });
 

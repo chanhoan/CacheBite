@@ -10,7 +10,7 @@ pub use snapshots::{OutcomeMetadata, ProviderRecord, SnapshotRepository, Snapsho
 
 use std::{
     collections::HashMap,
-    fs::{self, File, OpenOptions},
+    fs::{self, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
     sync::{
@@ -18,6 +18,9 @@ use std::{
         Arc, Mutex, OnceLock, Weak,
     },
 };
+
+#[cfg(unix)]
+use std::fs::File;
 
 use serde::Serialize;
 
@@ -69,6 +72,7 @@ fn write_json_atomically(path: &Path, value: &impl Serialize) -> io::Result<()> 
         serde_json::to_writer_pretty(&mut file, value).map_err(io::Error::other)?;
         file.write_all(b"\n")?;
         file.sync_all()?;
+        drop(file);
         replace_atomically(&temp_path, path)?;
         sync_directory(parent)
     })();

@@ -3,7 +3,7 @@
   let { settings, autostartAvailable = true, onChange = () => {} } = $props();
 </script>
 
-<fieldset>
+<fieldset class="settings">
   <legend>Settings</legend>
   <label
     ><input
@@ -54,3 +54,38 @@
     /> Start at login</label
   >
 </fieldset>
+
+<style>
+  .settings {
+    display: grid;
+    gap: var(--space-3);
+    width: 100%;
+    padding: var(--space-4);
+    border: 0;
+    border-top: 1px solid var(--color-border);
+    color: var(--color-text);
+  }
+  legend {
+    padding: 0 0 var(--space-2);
+    font-weight: 600;
+  }
+  label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    color: var(--color-text-muted);
+    font-size: 0.8125rem;
+  }
+  input {
+    accent-color: var(--color-accent);
+  }
+  select {
+    padding: 0.35rem 1.75rem 0.35rem 0.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: 0.4rem;
+    background: var(--color-surface);
+    color: var(--color-text);
+    font: inherit;
+  }
+</style>

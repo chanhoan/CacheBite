@@ -4,6 +4,8 @@ pub mod refresh;
 pub mod store;
 pub mod window;
 
+use std::{fs, io, path::Path};
+
 #[cfg(test)]
 mod domain_test;
 
@@ -14,8 +16,26 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .setup(|app| {
+            #[cfg(debug_assertions)]
+            {
+                eprintln!(
+                    "[CacheBite:native] setup:start v{}",
+                    env!("CARGO_PKG_VERSION")
+                );
+                if let Some(overlay) = app.get_webview_window("overlay") {
+                    overlay.open_devtools();
+                }
+            }
             let app_data = app.path().app_data_dir()?;
+            if let Err(error) = install_bundled_pet_packages(&app.path().resource_dir()?, &app_data)
+            {
+                eprintln!("failed to install bundled pet packages: {error}");
+            }
             let settings_repository = store::SettingsRepository::new(&app_data);
             if let Ok(settings) = settings_repository.load() {
                 restore_window_positions(app, &settings);
@@ -46,20 +66,14 @@ pub fn run() {
                     )),
                 )
             } else {
-                (
-                    Arc::new(collectors::claude::ClaudeCollector::new(broker)),
-                    match configured_codex_search_path(
-                        std::env::var_os("CACHEBITE_CODEX_PATH"),
-                        std::env::var_os("PATH"),
-                    )
-                    .ok_or(collectors::CollectorError::CliMissing)
-                    .and_then(|path| collectors::codex::resolve_codex_executable(&path))
-                    .and_then(collectors::codex::CodexCollector::new)
-                    {
-                        Ok(collector) => Arc::new(collector),
-                        Err(_) => Arc::new(MissingCodexCollector),
-                    },
+                let native_codex = configured_codex_search_path(
+                    std::env::var_os("CACHEBITE_CODEX_PATH"),
+                    std::env::var_os("PATH"),
                 )
+                .ok_or(collectors::CollectorError::CliMissing)
+                .and_then(|path| collectors::codex::resolve_codex_executable(&path))
+                .and_then(collectors::codex::CodexCollector::new);
+                production_collectors(broker, native_codex)?
             };
             let snapshots = Arc::new(store::SnapshotRepository::new(&app_data));
             let history = Arc::new(store::HistoryRepository::new(&app_data));
@@ -82,6 +96,10 @@ pub fn run() {
             app.manage(store::PetPackageRepository::new(app.path().app_data_dir()?));
             app.manage(service);
             app.manage(collector_mode);
+            #[cfg(debug_assertions)]
+            eprintln!("[CacheBite:native] setup:ready");
+            #[cfg(windows)]
+            start_fullscreen_monitor(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -99,6 +117,117 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("failed to run CacheBite");
+}
+
+type CollectorPair = (
+    std::sync::Arc<dyn collectors::Collector>,
+    std::sync::Arc<dyn collectors::Collector>,
+);
+
+fn production_collectors(
+    broker: std::sync::Arc<dyn collectors::broker::ClaudeTokenSource>,
+    native_codex: Result<collectors::codex::CodexCollector, collectors::CollectorError>,
+) -> Result<CollectorPair, collectors::fallback::ProviderMismatch> {
+    #[cfg(windows)]
+    if let Ok(factory) = collectors::wsl::WslCommandFactory::from_system_directory() {
+        let claude = collectors::fallback::FallbackCollector::new(
+            Box::new(collectors::claude::ClaudeCollector::new(broker)),
+            Box::new(collectors::claude::ClaudeCollector::new(
+                std::sync::Arc::new(collectors::wsl::WslCredentialSource::new(factory.clone())),
+            )),
+            collectors::fallback::FallbackTrigger::CredentialsMissing,
+        )?;
+        let native_codex: Box<dyn collectors::Collector> = match native_codex {
+            Ok(collector) => Box::new(collector),
+            Err(_) => Box::new(MissingCodexCollector),
+        };
+        let codex = collectors::fallback::FallbackCollector::new(
+            native_codex,
+            Box::new(collectors::wsl::WslCodexCollector::new(factory)),
+            collectors::fallback::FallbackTrigger::CliMissing,
+        )?;
+        return Ok((std::sync::Arc::new(claude), std::sync::Arc::new(codex)));
+    }
+
+    let codex: std::sync::Arc<dyn collectors::Collector> = match native_codex {
+        Ok(collector) => std::sync::Arc::new(collector),
+        Err(_) => std::sync::Arc::new(MissingCodexCollector),
+    };
+    Ok((
+        std::sync::Arc::new(collectors::claude::ClaudeCollector::new(broker)),
+        codex,
+    ))
+}
+
+#[cfg(windows)]
+fn start_fullscreen_monitor(app: tauri::AppHandle) {
+    use std::time::Duration;
+    use tauri::Manager;
+
+    tauri::async_runtime::spawn(async move {
+        let mut hidden_for_fullscreen = false;
+        loop {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            let fullscreen = window::foreground_window_is_fullscreen();
+            if fullscreen == hidden_for_fullscreen {
+                continue;
+            }
+            hidden_for_fullscreen = fullscreen;
+            if let Some(overlay) = app.get_webview_window("overlay") {
+                let _ = if fullscreen {
+                    overlay.hide()
+                } else {
+                    overlay.show()
+                };
+            }
+            if fullscreen {
+                if let Some(panel) = app.get_webview_window("panel") {
+                    let _ = panel.hide();
+                }
+            }
+        }
+    });
+}
+
+fn install_bundled_pet_packages(resource_dir: &Path, app_data: &Path) -> io::Result<()> {
+    let bundled_pets = resource_dir.join("resources").join("pets");
+    let installed_pets = app_data.join("pets");
+    fs::create_dir_all(&installed_pets)?;
+    for package_id in ["cat", "corgi"] {
+        let destination = installed_pets.join(package_id);
+        if store::PetPackageRepository::new(app_data).should_preserve_installed(package_id) {
+            continue;
+        }
+        if destination.exists() {
+            fs::remove_dir_all(&destination)?;
+        }
+        let staging = installed_pets.join(format!(".{package_id}.installing"));
+        if staging.exists() {
+            fs::remove_dir_all(&staging)?;
+        }
+        if let Err(error) = copy_directory(&bundled_pets.join(package_id), &staging)
+            .and_then(|()| fs::rename(&staging, &destination))
+        {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(error);
+        }
+    }
+    Ok(())
+}
+
+fn copy_directory(source: &Path, destination: &Path) -> io::Result<()> {
+    fs::create_dir_all(destination)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_directory(&source_path, &destination_path)?;
+        } else {
+            fs::copy(source_path, destination_path)?;
+        }
+    }
+    Ok(())
 }
 
 fn configured_codex_search_path(
@@ -228,6 +357,7 @@ fn platform_home_dir() -> Option<std::path::PathBuf> {
 mod tests {
     use crate::refresh::ipc::{CollectorMode, CollectorModeDto};
     use std::ffi::OsString;
+    use std::fs;
 
     #[test]
     fn application_identifier_is_stable() {
@@ -261,5 +391,100 @@ mod tests {
             ),
             Some(OsString::from("/controlled/no-codex"))
         );
+    }
+
+    #[test]
+    fn installs_bundled_pet_packages_without_overwriting_existing_packages() {
+        let temp = tempfile::tempdir().unwrap();
+        let bundled = temp.path().join("resources/pets");
+        let app_data = temp.path().join("app-data");
+        fs::create_dir_all(bundled.join("cat/frames")).unwrap();
+        fs::create_dir_all(bundled.join("corgi/frames")).unwrap();
+        fs::write(bundled.join("cat/manifest.json"), "bundled cat").unwrap();
+        fs::write(bundled.join("cat/frames/cat_idle_01.png"), "cat frame").unwrap();
+        fs::write(bundled.join("corgi/manifest.json"), "bundled corgi").unwrap();
+        fs::create_dir_all(app_data.join("pets/cat/frames")).unwrap();
+        fs::write(
+            app_data.join("pets/cat/manifest.json"),
+            r#"{"id":"cat","displayName":"Custom cat","defaultSize":{"width":160,"height":160},"animations":{"idle":{"type":"image","source":"frames/custom.png"}},"states":{}}"#,
+        )
+        .unwrap();
+        fs::write(app_data.join("pets/cat/frames/custom.png"), "custom frame").unwrap();
+
+        super::install_bundled_pet_packages(temp.path(), &app_data).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(app_data.join("pets/cat/manifest.json")).unwrap(),
+            r#"{"id":"cat","displayName":"Custom cat","defaultSize":{"width":160,"height":160},"animations":{"idle":{"type":"image","source":"frames/custom.png"}},"states":{}}"#
+        );
+        assert_eq!(
+            fs::read_to_string(app_data.join("pets/corgi/manifest.json")).unwrap(),
+            "bundled corgi"
+        );
+    }
+
+    #[test]
+    fn repairs_an_incomplete_bundled_pet_install() {
+        let temp = tempfile::tempdir().unwrap();
+        let bundled = temp.path().join("resources/pets");
+        let app_data = temp.path().join("app-data");
+        for package_id in ["cat", "corgi"] {
+            fs::create_dir_all(bundled.join(package_id).join("frames")).unwrap();
+            fs::write(
+                bundled.join(package_id).join("manifest.json"),
+                format!("bundled {package_id}"),
+            )
+            .unwrap();
+            fs::write(
+                bundled
+                    .join(package_id)
+                    .join(format!("frames/{package_id}_idle_01.png")),
+                format!("{package_id} frame"),
+            )
+            .unwrap();
+        }
+        fs::create_dir_all(app_data.join("pets/cat")).unwrap();
+
+        super::install_bundled_pet_packages(temp.path(), &app_data).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(app_data.join("pets/cat/manifest.json")).unwrap(),
+            "bundled cat"
+        );
+        assert_eq!(
+            fs::read_to_string(app_data.join("pets/cat/frames/cat_idle_01.png")).unwrap(),
+            "cat frame"
+        );
+    }
+
+    #[test]
+    fn upgrades_a_legacy_bundled_pet_package_to_current_frame_names() {
+        let temp = tempfile::tempdir().unwrap();
+        let bundled = temp.path().join("resources/pets");
+        let app_data = temp.path().join("app-data");
+        for package_id in ["cat", "corgi"] {
+            fs::create_dir_all(bundled.join(package_id).join("frames")).unwrap();
+            fs::write(
+                bundled.join(package_id).join("manifest.json"),
+                format!("bundled {package_id}"),
+            )
+            .unwrap();
+        }
+        fs::write(bundled.join("cat/frames/cat_idle_01.png"), "new frame").unwrap();
+        fs::create_dir_all(app_data.join("pets/cat/frames")).unwrap();
+        fs::write(
+            app_data.join("pets/cat/manifest.json"),
+            r#"{"id":"cat","displayName":"Cat","defaultSize":{"width":128,"height":128},"animations":{"idle":{"type":"image","source":"frames/idle_01.png"}},"states":{}}"#,
+        )
+        .unwrap();
+        fs::write(app_data.join("pets/cat/frames/idle_01.png"), "old frame").unwrap();
+
+        super::install_bundled_pet_packages(temp.path(), &app_data).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(app_data.join("pets/cat/frames/cat_idle_01.png")).unwrap(),
+            "new frame"
+        );
+        assert!(!app_data.join("pets/cat/frames/idle_01.png").exists());
     }
 }

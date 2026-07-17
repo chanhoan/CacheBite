@@ -1,7 +1,29 @@
 use crate::domain::{
-    CollectionOutcome, FailureClass, Provider, ProviderUsageSnapshot, Source, UsageWindow,
+    is_valid_pet_id, CollectionOutcome, FailureClass, Provider, ProviderUsageSnapshot, Source,
+    UsageWindow,
 };
 use time::OffsetDateTime;
+
+#[test]
+fn pet_ids_use_the_shared_lowercase_ascii_contract() {
+    for valid in ["a", "cat", "pet-2", &"a".repeat(64)] {
+        assert!(is_valid_pet_id(valid), "expected valid pet id: {valid}");
+    }
+    for invalid in [
+        "",
+        "Cat",
+        "-cat",
+        "cat-",
+        "cat_pet",
+        "고양이",
+        &"a".repeat(65),
+    ] {
+        assert!(
+            !is_valid_pet_id(invalid),
+            "expected invalid pet id: {invalid}"
+        );
+    }
+}
 
 #[test]
 fn usage_window_validates_and_clamps_percent() {

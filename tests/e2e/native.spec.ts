@@ -7,6 +7,23 @@ if (expectedMode !== 'fixture' && expectedMode !== 'production') {
 }
 
 describe(`CacheBite native ${expectedMode} composition smoke`, () => {
+  const switchToCacheBiteWindow = async (label: 'overlay' | 'panel') => {
+    for (const handle of await browser.getWindowHandles()) {
+      await browser.switchToWindow(handle);
+      const main = $('main[aria-label="CacheBite"]');
+      if (
+        (await main.isExisting()) &&
+        (await main.getAttribute('data-window-label')) === label
+      )
+        return;
+    }
+    throw new Error(`CacheBite ${label} window was not found`);
+  };
+
+  beforeEach(async () => {
+    await switchToCacheBiteWindow('overlay');
+  });
+
   const invokeFromCurrentWindow = async (command: string) =>
     browser.executeAsync(
       (
@@ -59,12 +76,10 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
       'data-collector-mode-codex',
       expectedMode,
     );
-    await expect($('body')).not.toHaveText(
-      expect.stringContaining('CacheBite is starting'),
-    );
-    await expect($('body')).not.toHaveText(
-      expect.stringContaining('CacheBite could not start'),
-    );
+    const bodyText = await $('body').getText();
+    expect(bodyText).not.toContain('CacheBite is starting');
+    expect(bodyText).not.toContain('CacheBite could not start');
+    expect(bodyText).not.toContain('Pet package unavailable');
   });
 
   it('hydrates panel history and round-trips a representative setting', async () => {
@@ -77,7 +92,7 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
     await $(
       'main[data-window-label="overlay"] [data-testid="overlay-pointer-surface"]',
     ).click();
-    await browser.switchWindow('CacheBite Usage');
+    await switchToCacheBiteWindow('panel');
 
     await expect($('section[aria-label="Usage panel"]')).toExist();
     await expect($('section[aria-label="Usage history"]')).toExist();
@@ -96,11 +111,11 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
 
   if (expectedMode === 'production') {
     it('shows credential-free production provider states after panel hydration', async () => {
-      await browser.switchWindow('CacheBite');
+      await switchToCacheBiteWindow('overlay');
       await $(
         'main[data-window-label="overlay"] [data-testid="overlay-pointer-surface"]',
       ).click();
-      await browser.switchWindow('CacheBite Usage');
+      await switchToCacheBiteWindow('panel');
 
       const claudeTab = $('button[role="tab"]=Claude');
       await claudeTab.click();
@@ -110,11 +125,29 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
       );
 
       const codexTab = $('button[role="tab"]=Codex');
-      await codexTab.click();
-      await expect(codexTab).toHaveAttribute('aria-selected', 'true');
-      await expect($('section[aria-label="Usage panel"]')).toHaveText(
-        expect.stringContaining('unavailable'),
-      );
+      try {
+        await codexTab.click();
+        await expect(codexTab).toHaveAttribute('aria-selected', 'true');
+        await expect(codexTab).toHaveAttribute('aria-label', 'Codex (primary)');
+        await expect($('body')).not.toHaveText(
+          expect.stringContaining('Settings could not be saved'),
+        );
+        await expect($('body')).not.toHaveText(
+          expect.stringContaining('autostart integration is unavailable'),
+        );
+        await expect($('body')).not.toHaveText(
+          expect.stringContaining('fullscreen detection is unavailable'),
+        );
+        await expect($('section[aria-label="Usage panel"]')).toHaveText(
+          expect.stringContaining('unavailable'),
+        );
+      } finally {
+        await claudeTab.click();
+        await expect(claudeTab).toHaveAttribute(
+          'aria-label',
+          'Claude (primary)',
+        );
+      }
     });
   }
 });

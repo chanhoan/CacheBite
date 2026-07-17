@@ -87,6 +87,29 @@ fn settings_can_replace_an_existing_file_atomically() {
     assert_eq!(fs::read_dir(dir.path()).expect("read dir").count(), 1);
 }
 
+#[test]
+fn history_batch_appends_ordered_samples_in_one_repository_operation() {
+    let dir = TempDir::new().expect("temp dir");
+    let repository = HistoryRepository::new(dir.path());
+    let first = snapshot(Provider::Claude, 1);
+    let mut second = snapshot(Provider::Claude, 2);
+    second.captured_at = OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(1);
+
+    assert_eq!(
+        repository
+            .append_success_batch(
+                &[first, second],
+                OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(2)
+            )
+            .expect("append batch"),
+        2
+    );
+    let history = repository
+        .load_at(OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(2))
+        .expect("load history");
+    assert_eq!(history.claude.samples.len(), 2);
+}
+
 #[cfg(unix)]
 #[test]
 fn persisted_files_are_owner_only() {
@@ -518,6 +541,28 @@ fn selected_pet_id_rejects_traversal_uppercase_and_excessive_length() {
 }
 
 #[test]
+fn default_settings_select_the_bundled_claude_pet() {
+    assert_eq!(Settings::default().selected_pet_id, "cat");
+}
+
+#[test]
+fn schema_three_idle_pet_is_reconciled_to_the_primary_provider() {
+    let dir = TempDir::new().expect("temp dir");
+    fs::write(
+        dir.path().join("settings.json"),
+        r#"{"schema_version":3,"primary_provider":"codex","selected_pet_id":"idle","bubble_enabled":true,"start_at_login":false,"notification_enabled":false,"secondary_notification_enabled":false,"logical_position":{"x":0.0,"y":0.0}}"#,
+    )
+    .unwrap();
+
+    let loaded = SettingsRepository::new(dir.path()).load().unwrap();
+
+    assert_eq!(loaded.selected_pet_id, "corgi");
+    assert!(fs::read_to_string(dir.path().join("settings.json"))
+        .unwrap()
+        .contains("\"selected_pet_id\": \"corgi\""));
+}
+
+#[test]
 fn save_position_is_atomic_validated_and_preserves_other_settings() {
     let dir = TempDir::new().expect("temp dir");
     let repository = SettingsRepository::new(dir.path());
@@ -561,10 +606,10 @@ fn pet_package_loader_returns_safe_asset_url_and_rejects_escaping_assets() {
     let package = PetPackageRepository::new(dir.path())
         .load("pet-2")
         .expect("load package");
-    assert_eq!(package.asset_base_url, "asset://localhost/pets/pet-2/");
-    assert!(!serde_json::to_string(&package)
-        .unwrap()
-        .contains(dir.path().to_string_lossy().as_ref()));
+    assert!(
+        Path::new(package.asset_base_url.trim_end_matches(['/', '\\']))
+            .ends_with(Path::new("pets").join("pet-2"))
+    );
     let poisoned = serde_json::json!({"id":"pet-2","displayName":"Pet","defaultSize":{"width":128,"height":128},"animations":{"idle":{"type":"image","source":"../secret"}},"states":{}});
     fs::write(
         root.join("manifest.json"),

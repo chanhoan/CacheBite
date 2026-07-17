@@ -1,19 +1,48 @@
 :root {
-  color-scheme: dark;
-  --color-surface: #171512;
-  --color-surface-raised: #25211c;
-  --color-text: #fff8e9;
-  --color-text-muted: #b8ad9c;
-  --color-accent: #f5a94a;
-  --color-status-ok: #73c991;
-  --color-status-warning: #f4c95d;
-  --color-status-critical: #ef8354;
-  --color-status-error: #db5a5a;
+  color-scheme: light dark;
+  --sev-ok: #22c55e;
+  --sev-warn: #f59e0b;
+  --sev-critical: #f97316;
+  --sev-exhausted: #dc2626;
+  --sev-unknown: #c3c8ce;
+  --color-text: #16191d;
+  --color-text-muted: #5b6169;
+  --color-text-faint: #8a9099;
+  --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-surface-sunken: #eceef1;
+  --color-border: #e6e8eb;
+  --color-accent: #3b5bdb;
+  --badge-lock: #6b7280;
+  --badge-slash: #8a9099;
+  --badge-error: #dc2626;
+  --badge-offline: #64748b;
+  --badge-loading: #3b5bdb;
+  --overlay-stale-dim: 0.42;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
   --space-4: 1rem;
-  --radius-panel: 1rem;
-  --shadow-panel: 0 0.75rem 2rem rgb(0 0 0 / 35%);
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  --radius-panel: 0.875rem;
+  --shadow-panel: 0 0.75rem 2rem rgb(22 25 29 / 18%);
+  font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --sev-ok: #4ade80;
+    --sev-warn: #fbbf24;
+    --sev-critical: #fb923c;
+    --sev-exhausted: #f87171;
+    --sev-unknown: #4b5563;
+    --color-text: #f3f4f6;
+    --color-text-muted: #9aa0a6;
+    --color-text-faint: #6b7280;
+    --color-surface: #1c1f24;
+    --color-surface-raised: #24282e;
+    --color-surface-sunken: #16191d;
+    --color-border: #2e333a;
+    --color-accent: #6d8dff;
+  }
 }

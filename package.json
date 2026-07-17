@@ -19,6 +19,8 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-mono": "^5.2.7",
+    "@fontsource/ibm-plex-sans": "^5.2.8",
     "@tauri-apps/api": "2.8.0",
     "@tauri-apps/plugin-notification": "2.3.3"
   },

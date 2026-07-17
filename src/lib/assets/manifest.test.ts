@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import catManifest from '../../../src-tauri/resources/pets/cat/manifest.json';
+import corgiManifest from '../../../src-tauri/resources/pets/corgi/manifest.json';
 
 import { validatePetManifest } from './manifest';
-import { resolveIdleAnimation } from './resolver';
 import { requestedAnimationKey, resolvePetAnimation } from './resolver';
 
 const validManifest = {
@@ -19,6 +20,23 @@ const validManifest = {
 };
 
 describe('pet manifest validation', () => {
+  it.each([
+    ['cat', catManifest],
+    ['corgi', corgiManifest],
+  ])(
+    'accepts the generated %s package with all mood states',
+    (_, candidate) => {
+      const manifest = validatePetManifest(candidate);
+
+      expect(Object.keys(manifest.states)).toEqual([
+        'idle',
+        'idle_warn',
+        'idle_critical',
+        'idle_exhausted',
+      ]);
+    },
+  );
+
   it('accepts a canonical manifest and returns an immutable value', () => {
     const manifest = validatePetManifest(validManifest);
 
@@ -57,9 +75,10 @@ describe('pet manifest validation', () => {
 
 describe('idle animation resolution', () => {
   it('resolves validated frames below the supplied package root', () => {
-    const animation = resolveIdleAnimation(
+    const animation = resolvePetAnimation(
       validatePetManifest(validManifest),
       'asset://localhost/pets/geometric-idle/',
+      'idle',
     );
 
     expect(animation).toEqual({
@@ -72,14 +91,31 @@ describe('idle animation resolution', () => {
     });
   });
 
+  it('resolves Windows Tauri asset URLs below the supplied package root', () => {
+    const animation = resolvePetAnimation(
+      validatePetManifest(validManifest),
+      'http://asset.localhost/C%3A/Users/test/AppData/pets/cat/',
+      'idle',
+    );
+
+    expect(animation).toMatchObject({
+      sources: [
+        'http://asset.localhost/C%3A/Users/test/AppData/pets/cat/frames/idle-01.svg',
+        'http://asset.localhost/C%3A/Users/test/AppData/pets/cat/frames/idle-02.svg',
+      ],
+    });
+  });
+
   it('rejects an invalid package root instead of resolving outside app data', () => {
     for (const root of [
       'javascript:alert(1)',
       'https://example.com/pet/',
       'http://localhost/pet/',
+      'http://evil.example/pet/',
+      'asset://evil.example/pet/',
     ]) {
       expect(() =>
-        resolveIdleAnimation(validatePetManifest(validManifest), root),
+        resolvePetAnimation(validatePetManifest(validManifest), root, 'idle'),
       ).toThrow('package root');
     }
   });
@@ -111,6 +147,6 @@ describe('v1.1 animation resolution', () => {
         'asset://localhost/pets/test/',
         'idle_critical',
       ),
-    ).toEqual(resolveIdleAnimation(manifest, 'asset://localhost/pets/test/'));
+    ).toEqual(resolvePetAnimation(manifest, 'asset://localhost/pets/test/', 'idle'));
   });
 });

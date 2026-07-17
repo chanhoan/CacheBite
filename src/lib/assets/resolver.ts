@@ -49,7 +49,15 @@ function validatedRoot(packageRoot: string): URL {
   } catch {
     throw new Error('Invalid pet package root');
   }
-  if (root.protocol !== 'asset:') {
+  const isAssetProtocol =
+    root.protocol === 'asset:' &&
+    root.hostname === 'localhost' &&
+    root.port === '';
+  const isWindowsAssetProtocol =
+    root.protocol === 'http:' &&
+    root.hostname === 'asset.localhost' &&
+    root.port === '';
+  if (!isAssetProtocol && !isWindowsAssetProtocol) {
     throw new Error('Invalid pet package root protocol');
   }
   if (root.username || root.password || root.search || root.hash) {
@@ -66,27 +74,6 @@ function validatedRoot(packageRoot: string): URL {
   }
   if (!root.pathname.endsWith('/')) root.pathname += '/';
   return root;
-}
-
-export function resolveIdleAnimation(
-  manifest: PetManifest,
-  packageRoot: string,
-): ResolvedAnimation {
-  const root = validatedRoot(packageRoot);
-  const idle = manifest.animations.idle;
-  if (idle.type === 'image') {
-    return Object.freeze({
-      type: 'image',
-      source: new URL(idle.source, root).href,
-    });
-  }
-  return Object.freeze({
-    type: 'frames',
-    sources: Object.freeze(
-      idle.frames.map((frame) => new URL(frame, root).href),
-    ),
-    frameDurationMs: idle.frameDurationMs,
-  });
 }
 
 export function resolvePetAnimation(

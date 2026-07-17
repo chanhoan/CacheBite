@@ -6,7 +6,9 @@ if (collectorMode !== 'fixture' && collectorMode !== 'production') {
     'Set CACHEBITE_EXPECTED_COLLECTOR_MODE to fixture or production',
   );
 }
-const application = `./src-tauri/target/debug/cachebite${process.platform === 'win32' ? '.exe' : ''}`;
+const application =
+  process.env.CACHEBITE_APPLICATION ??
+  `./src-tauri/target/debug/cachebite${process.platform === 'win32' ? '.exe' : ''}`;
 
 export const config: Options.Testrunner = {
   runner: 'local',
@@ -14,7 +16,16 @@ export const config: Options.Testrunner = {
   maxInstances: 1,
   framework: 'mocha',
   reporters: ['spec'],
-  services: ['tauri'],
+  services: [
+    [
+      'tauri',
+      {
+        application,
+        driverProvider: 'official',
+        autoInstallTauriDriver: true,
+      },
+    ],
+  ],
   capabilities: [
     {
       browserName: 'tauri',

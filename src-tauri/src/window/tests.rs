@@ -137,6 +137,25 @@ fn fullscreen_changes_visibility_without_touching_collection_revision() {
 }
 
 #[test]
+fn fullscreen_rect_must_cover_the_monitor_in_both_dimensions() {
+    let monitor = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1920.0,
+        height: 1080.0,
+    };
+    assert!(super::rect_covers_monitor(monitor, monitor));
+    assert!(!super::rect_covers_monitor(
+        Rect {
+            width: 1920.0,
+            height: 1040.0,
+            ..monitor
+        },
+        monitor,
+    ));
+}
+
+#[test]
 fn autostart_is_idempotent_and_reports_visible_degradation() {
     let mut adapter = FakeAutostart {
         supported: true,
@@ -194,6 +213,14 @@ fn native_commands_are_authorized_by_window_label() {
     assert!(command_allowed("panel", NativeCommand::Quit));
     assert!(!command_allowed("panel", NativeCommand::SavePosition));
     assert!(!command_allowed("unknown", NativeCommand::ShowPanel));
+}
+
+#[test]
+fn normalizes_supported_platform_names_and_falls_back_to_linux() {
+    assert_eq!(super::platform_os("macos"), "macos");
+    assert_eq!(super::platform_os("windows"), "windows");
+    assert_eq!(super::platform_os("linux"), "linux");
+    assert_eq!(super::platform_os("freebsd"), "linux");
 }
 
 #[test]

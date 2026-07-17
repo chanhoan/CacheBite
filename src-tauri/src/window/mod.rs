@@ -36,6 +36,7 @@ pub enum CapabilityDiagnostic {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PlatformCapabilities {
+    pub os: &'static str,
     pub always_on_top: CapabilityDiagnostic,
     pub fullscreen_detection: CapabilityDiagnostic,
     pub autostart: CapabilityDiagnostic,
@@ -105,6 +106,7 @@ pub trait PlatformWindowAdapter {
 impl PlatformCapabilities {
     pub fn linux_wayland(always_on_top: bool, fullscreen_detection: bool) -> Self {
         Self {
+            os: "linux",
             always_on_top: capability(always_on_top, "compositor does not permit always-on-top"),
             fullscreen_detection: capability(
                 fullscreen_detection,
@@ -112,6 +114,15 @@ impl PlatformCapabilities {
             ),
             autostart: CapabilityDiagnostic::Available,
         }
+    }
+}
+
+pub(crate) fn platform_os(os: &str) -> &'static str {
+    match os {
+        "macos" => "macos",
+        "windows" => "windows",
+        "linux" => "linux",
+        _ => "linux",
     }
 }
 
@@ -142,6 +153,73 @@ pub fn apply_fullscreen(state: &RuntimeState, fullscreen: bool) -> RuntimeState 
         },
         ..state.clone()
     }
+}
+
+pub fn rect_covers_monitor(window: Rect, monitor: Rect) -> bool {
+    const TOLERANCE: f64 = 2.0;
+    (window.x - monitor.x).abs() <= TOLERANCE
+        && (window.y - monitor.y).abs() <= TOLERANCE
+        && (window.width - monitor.width).abs() <= TOLERANCE
+        && (window.height - monitor.height).abs() <= TOLERANCE
+}
+
+#[cfg(windows)]
+pub fn foreground_window_is_fullscreen() -> bool {
+    use core::ffi::c_void;
+
+    #[repr(C)]
+    #[derive(Clone, Copy, Default)]
+    struct WinRect {
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    }
+    #[repr(C)]
+    #[derive(Default)]
+    struct MonitorInfo {
+        size: u32,
+        monitor: WinRect,
+        work: WinRect,
+        flags: u32,
+    }
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetForegroundWindow() -> *mut c_void;
+        fn GetShellWindow() -> *mut c_void;
+        fn IsWindowVisible(window: *mut c_void) -> i32;
+        fn GetWindowRect(window: *mut c_void, rect: *mut WinRect) -> i32;
+        fn MonitorFromWindow(window: *mut c_void, flags: u32) -> *mut c_void;
+        fn GetMonitorInfoW(monitor: *mut c_void, info: *mut MonitorInfo) -> i32;
+    }
+
+    const MONITOR_DEFAULT_TO_NEAREST: u32 = 2;
+    let (window, monitor) = unsafe {
+        let handle = GetForegroundWindow();
+        if handle.is_null() || handle == GetShellWindow() || IsWindowVisible(handle) == 0 {
+            return false;
+        }
+        let mut window = WinRect::default();
+        if GetWindowRect(handle, &mut window) == 0 {
+            return false;
+        }
+        let monitor_handle = MonitorFromWindow(handle, MONITOR_DEFAULT_TO_NEAREST);
+        let mut monitor = MonitorInfo {
+            size: std::mem::size_of::<MonitorInfo>() as u32,
+            ..MonitorInfo::default()
+        };
+        if monitor_handle.is_null() || GetMonitorInfoW(monitor_handle, &mut monitor) == 0 {
+            return false;
+        }
+        (window, monitor.monitor)
+    };
+    let rect = |value: WinRect| Rect {
+        x: f64::from(value.left),
+        y: f64::from(value.top),
+        width: f64::from(value.right - value.left),
+        height: f64::from(value.bottom - value.top),
+    };
+    rect_covers_monitor(rect(window), rect(monitor))
 }
 
 pub fn synchronize_fullscreen(

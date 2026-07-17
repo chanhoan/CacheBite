@@ -28,10 +28,11 @@ describe('UsagePanel', () => {
           },
         },
         selected: 'claude',
+        primary: 'claude',
         refreshing: false,
       },
     });
-    expect(screen.getByRole('tab', { name: 'Claude' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Claude (primary)' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Codex' })).toBeTruthy();
     expect(screen.getByTestId('usage-skeleton')).toBeTruthy();
     await rerender({
@@ -40,16 +41,17 @@ describe('UsagePanel', () => {
         codex: { ...provider('active'), provider: 'codex', source: 'cli_rpc' },
       },
       selected: 'claude',
+      primary: 'claude',
       refreshing: false,
     });
     expect(screen.queryByTestId('usage-skeleton')).toBeNull();
   });
 
-  it('disables refresh only while debounced and selects primary without fetching', async () => {
+  it('disables refresh only while debounced and sets the selected tab primary without fetching', async () => {
     const onRefresh = vi.fn();
     const onSelect = vi.fn();
     const onPrimary = vi.fn();
-    render(UsagePanel, {
+    const { container } = render(UsagePanel, {
       props: {
         providers: {
           claude: provider('active'),
@@ -60,6 +62,7 @@ describe('UsagePanel', () => {
           },
         },
         selected: 'claude',
+        primary: 'codex',
         refreshing: true,
         onRefresh,
         onSelect,
@@ -71,9 +74,12 @@ describe('UsagePanel', () => {
         .disabled,
     ).toBe(true);
     await fireEvent.click(
-      screen.getByRole('button', { name: 'Make Codex primary' }),
+      screen.getByRole('button', { name: 'Set as primary' }),
     );
-    expect(onPrimary).toHaveBeenCalledWith('codex');
+    expect(onPrimary).toHaveBeenCalledWith('claude');
     expect(onRefresh).not.toHaveBeenCalled();
+    expect(
+      container.querySelector('.freshness')?.textContent?.replace(/\s+/g, ' '),
+    ).toContain('Fresh · captured 2026-07-16T12:00:00Z · oauth_api');
   });
 });

@@ -22,9 +22,38 @@ main {
 }
 
 main.panel {
+  width: min(23rem, 100%);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-panel);
   background: var(--color-surface);
   box-shadow: var(--shadow-panel);
+}
+
+main.panel[data-platform='macos'] {
+  border-radius: 14px;
+  background: rgb(250 250 252 / 92%);
+  backdrop-filter: blur(20px);
+}
+
+main.panel[data-platform='windows'] {
+  border-radius: 8px;
+  background: #f3f3f3;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  --color-accent: #0067c0;
+}
+
+main.panel[data-platform='linux'] {
+  border-radius: 12px;
+  background: #fafafb;
+  font-family: 'Cantarell', 'Ubuntu', system-ui, sans-serif;
+  --color-accent: #3584e4;
+}
+
+@media (prefers-color-scheme: dark) {
+  main.panel[data-platform] {
+    background: var(--color-surface);
+  }
 }
 
 .visually-hidden {

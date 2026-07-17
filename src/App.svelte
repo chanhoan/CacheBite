@@ -21,7 +21,12 @@
   import { createProvidersStore } from './lib/stores/providers';
   import { createSettingsStore } from './lib/stores/settings';
   import { createInteractionStore } from './lib/stores/interaction';
-  import { derivePetUiState, type ProviderState } from './lib/state/engine';
+  import { derivePetUiState } from './lib/state/engine';
+  import {
+    toProviderPresentation,
+    toSettingsStoreState,
+  } from './lib/state/presentation';
+  import type { Provider } from './lib/contracts/domain';
   import {
     beginPointer,
     releasePointer,
@@ -36,7 +41,6 @@
     type NotificationDiagnostic,
     type NotificationPolicyState,
   } from './lib/interaction/notificationPolicy';
-  import type { PanelProviderModel } from './lib/components/panelModels';
   import type { PetOverlayViewModel } from './lib/components/models';
   import { validatePetManifest, type PetManifest } from './lib/assets/manifest';
   import {
@@ -59,6 +63,10 @@
   }: { gateway?: AppGateway; notificationAdapter?: NotificationAdapter } =
     $props();
   const windowLabel = query.get('window') ?? 'overlay';
+  const PROVIDER_PET: Record<Provider, string> = {
+    claude: 'cat',
+    codex: 'corgi',
+  };
   const providersStore = createProvidersStore(
     (provider) => void gateway.refreshProvider(provider),
   );
@@ -94,12 +102,30 @@
   let settingsSaveFailed = $state(false);
   let positionSaveFailed = $state(false);
   let notificationQueue: Promise<void> = Promise.resolve();
-  let historyQueue: Promise<void> = Promise.resolve();
+  let historyReloadInFlight = false;
+  let historyReloadDirty = false;
   let settingsQueue: Promise<void> = Promise.resolve();
   let unlisten: (() => void) | undefined;
   let unlistenPosition: (() => void) | undefined;
+  let unlistenSettings: (() => void) | undefined;
   let mounted = false;
   let startupAttempt = 0;
+  const diagnosticsEnabled = import.meta.env.VITE_CACHEBITE_DIAGNOSTIC === '1';
+  function trace(message: string, detail: unknown = '') {
+    if (!diagnosticsEnabled) return;
+    console.info(`[CacheBite:${windowLabel}] ${message}`, detail ?? '');
+  }
+  async function traceAsync<T>(label: string, operation: Promise<T>) {
+    trace(`${label}:start`);
+    try {
+      const result = await operation;
+      trace(`${label}:ok`);
+      return result;
+    } catch (error) {
+      trace(`${label}:error`, error);
+      throw error;
+    }
+  }
 
   const serializeNotification = (
     transition: (
@@ -120,11 +146,28 @@
 
   const refreshHistory = () => {
     if (windowLabel !== 'panel') return;
-    historyQueue = historyQueue
-      .catch(() => undefined)
-      .then(async () => {
-        history = await gateway.getHistory().catch(() => history);
-      });
+    if (historyReloadInFlight) {
+      historyReloadDirty = true;
+      return;
+    }
+    historyReloadInFlight = true;
+    const attempt = startupAttempt;
+    void (async () => {
+      try {
+        do {
+          historyReloadDirty = false;
+          const loadedHistory = await gateway.getHistory().catch(() => null);
+          if (!mounted || attempt !== startupAttempt) return;
+          if (loadedHistory) history = loadedHistory;
+        } while (historyReloadDirty && mounted && attempt === startupAttempt);
+      } finally {
+        historyReloadInFlight = false;
+        if (historyReloadDirty && mounted && attempt === startupAttempt) {
+          historyReloadDirty = false;
+          refreshHistory();
+        }
+      }
+    })();
   };
 
   const statusUpdate = (wire: ProviderBackendStateWire) => {
@@ -201,21 +244,96 @@
   const cleanupListeners = () => {
     const providerCleanup = unlisten;
     const positionCleanup = unlistenPosition;
+    const settingsCleanup = unlistenSettings;
     unlisten = undefined;
     unlistenPosition = undefined;
+    unlistenSettings = undefined;
     callCleanup(providerCleanup);
     callCleanup(positionCleanup);
+    callCleanup(settingsCleanup);
+  };
+
+  const loadPetPackage = async () => {
+    const loadedPetPackage = await gateway.getPetPackage().catch(() => null);
+    if (!loadedPetPackage) {
+      petPackageError = true;
+      return;
+    }
+    try {
+      const manifest = validatePetManifest(loadedPetPackage.manifest);
+      resolvePetAnimation(manifest, loadedPetPackage.assetBaseUrl, 'idle');
+      petPackage = {
+        manifest,
+        assetBaseUrl: loadedPetPackage.assetBaseUrl,
+      };
+      petPackageError = false;
+    } catch {
+      petPackageError = true;
+    }
+  };
+
+  const registerListeners = async (attempt: number) => {
+    try {
+      const providerUnlisten = await traceAsync(
+        'listenProviderStates',
+        gateway.listenProviderStates((state) => consume(state, true)),
+      );
+      if (!mounted || attempt !== startupAttempt) {
+        callCleanup(providerUnlisten);
+        return;
+      }
+      unlisten = providerUnlisten;
+      const settingsUnlisten = await traceAsync(
+        'listenSettings',
+        gateway.listenSettings((settings) => {
+          const petChanged =
+            settings.selectedPetId !== appSettings.selectedPetId;
+          appSettings = settings;
+          settingsStore.replace(toSettingsStoreState(settings));
+          if (petChanged && windowLabel === 'overlay') void loadPetPackage();
+        }),
+      );
+      if (!mounted || attempt !== startupAttempt) {
+        callCleanup(settingsUnlisten);
+        return;
+      }
+      unlistenSettings = settingsUnlisten;
+      if (windowLabel !== 'overlay') return;
+      const positionUnlisten = await traceAsync(
+        'listenPositionMoved',
+        gateway.listenPositionMoved(
+          (position) => {
+            appSettings = { ...appSettings, logicalPosition: position };
+          },
+          () => {
+            positionSaveFailed = true;
+          },
+        ),
+      );
+      if (!mounted || attempt !== startupAttempt) {
+        callCleanup(positionUnlisten);
+        return;
+      }
+      unlistenPosition = positionUnlisten;
+    } catch (error) {
+      trace('listener-registration:error', error);
+      if (mounted && attempt === startupAttempt) cleanupListeners();
+    }
   };
 
   const start = async () => {
     const attempt = ++startupAttempt;
     cleanupListeners();
     startupState = 'loading';
+    trace('startup:begin', { attempt });
     try {
       const [states, settings, selectedCollectorMode] = await Promise.all([
-        gateway.getProviderStates(),
-        gateway.getSettings().catch(() => appSettings),
-        gateway.getCollectorMode(),
+        traceAsync('getProviderStates', gateway.getProviderStates()),
+        traceAsync(
+          'getSettings',
+          gateway.getSettings().catch(() => appSettings),
+        ),
+        traceAsync('getCollectorMode', gateway.getCollectorMode()),
       ]);
       if (!mounted || attempt !== startupAttempt) return;
       appSettings = settings;
@@ -224,82 +342,41 @@
         const reconciled = await serializeNotification((current) =>
           configureNotifications(
             current,
-            settings.notificationsEnabled,
+            appSettings.notificationsEnabled,
             notificationAdapter,
           ),
         );
         if (
-          settings.notificationsEnabled &&
+          appSettings.notificationsEnabled &&
           (reconciled.permission !== 'granted' ||
             reconciled.diagnostic.status !== 'available')
         ) {
           appSettings = await gateway.updateSettings({
-            ...settings,
+            ...appSettings,
             notificationsEnabled: false,
           });
         }
       }
-      settingsStore.replace({
-        primaryProvider: appSettings.primaryProvider,
-        bubblesEnabled: appSettings.bubblesEnabled,
-        startAtLogin: appSettings.startAtLogin,
-        notificationsEnabled: appSettings.notificationsEnabled,
-        secondaryNotificationsEnabled:
-          appSettings.secondaryNotificationsEnabled,
-      });
-      const [loadedPetPackage, loadedHistory, loadedCapabilities] =
-        await Promise.all([
-          gateway.getPetPackage().catch(() => null),
-          windowLabel === 'panel'
-            ? gateway.getHistory().catch(() => ({ claude: [], codex: [] }))
-            : Promise.resolve({ claude: [], codex: [] }),
-          windowLabel === 'panel'
-            ? gateway.getPlatformCapabilities().catch(() => null)
-            : Promise.resolve(null),
-        ]);
+      settingsStore.replace(toSettingsStoreState(appSettings));
+      const [, loadedHistory, loadedCapabilities] = await Promise.all([
+        windowLabel === 'overlay'
+          ? traceAsync('loadPetPackage', loadPetPackage())
+          : Promise.resolve(),
+        windowLabel === 'panel'
+          ? gateway.getHistory().catch(() => ({ claude: [], codex: [] }))
+          : Promise.resolve({ claude: [], codex: [] }),
+        gateway.getPlatformCapabilities().catch(() => null),
+      ]);
       if (!mounted || attempt !== startupAttempt) return;
-      if (loadedPetPackage) {
-        try {
-          petPackage = {
-            manifest: validatePetManifest(loadedPetPackage.manifest),
-            assetBaseUrl: loadedPetPackage.assetBaseUrl,
-          };
-          petPackageError = false;
-        } catch {
-          petPackageError = true;
-        }
-      } else {
-        petPackageError = true;
-      }
       history = loadedHistory;
       platformCapabilities = loadedCapabilities;
       consume(states.claude);
       consume(states.codex);
-      const providerUnlisten = await gateway.listenProviderStates((state) =>
-        consume(state, true),
-      );
-      if (!mounted || attempt !== startupAttempt) {
-        callCleanup(providerUnlisten);
-        return;
-      }
-      unlisten = providerUnlisten;
-      if (windowLabel === 'overlay') {
-        const positionUnlisten = await gateway.listenPositionMoved(
-          (position) => {
-            appSettings = { ...appSettings, logicalPosition: position };
-          },
-          () => {
-            positionSaveFailed = true;
-          },
-        );
-        if (!mounted || attempt !== startupAttempt) {
-          callCleanup(positionUnlisten);
-          return;
-        }
-        unlistenPosition = positionUnlisten;
-      }
       startupState = 'ready';
-    } catch {
+      trace('startup:ready');
+      void registerListeners(attempt);
+    } catch (error) {
+      trace('startup:error', error);
       if (!mounted || attempt !== startupAttempt) return;
       cleanupListeners();
       startupState = 'error';
@@ -316,41 +393,14 @@
     };
   });
 
-  const panelModel = (state: ProviderState): PanelProviderModel => {
-    const ui = derivePetUiState(state, Date.now());
-    return {
-      provider: state.provider,
-      system: ui.system,
-      stale: ui.stale,
-      planType: state.snapshot?.planType ?? null,
-      session: {
-        usedPercent:
-          ui.sessionSeverity === 'unknown'
-            ? null
-            : (state.snapshot?.session?.usedPercent ?? null),
-        severity: ui.sessionSeverity,
-        resetsAt: state.snapshot?.session?.resetsAt ?? null,
-      },
-      weekly: {
-        usedPercent:
-          ui.weeklySeverity === 'unknown'
-            ? null
-            : (state.snapshot?.weekly?.usedPercent ?? null),
-        severity: ui.weeklySeverity,
-        resetsAt: state.snapshot?.weekly?.resetsAt ?? null,
-      },
-      capturedAt: state.snapshot?.capturedAt ?? null,
-      source:
-        state.snapshot?.source ??
-        (state.provider === 'claude' ? 'oauth_api' : 'cli_rpc'),
-      isCached: state.snapshot?.isCached ?? false,
-    };
-  };
   const panelProviders = $derived({
-    claude: panelModel($providersStore.claude),
-    codex: panelModel($providersStore.codex),
+    claude: toProviderPresentation($providersStore.claude, Date.now()),
+    codex: toProviderPresentation($providersStore.codex, Date.now()),
   });
   const primaryState = $derived($providersStore[appSettings.primaryProvider]);
+  const primaryPresentation = $derived(
+    toProviderPresentation(primaryState, Date.now()),
+  );
   const primaryUi = $derived(derivePetUiState(primaryState, Date.now()));
   const resolvedAnimation = $derived(
     petPackage
@@ -368,21 +418,15 @@
   const overlayModel = $derived<PetOverlayViewModel | null>(
     resolvedAnimation
       ? {
-          system: primaryUi.system,
-          stale: primaryUi.stale,
+          system: primaryPresentation.system,
+          stale: primaryPresentation.stale,
           session: {
-            usedPercent:
-              primaryUi.sessionSeverity === 'unknown'
-                ? null
-                : (primaryState.snapshot?.session?.usedPercent ?? null),
-            severity: primaryUi.sessionSeverity,
+            usedPercent: primaryPresentation.session.usedPercent,
+            severity: primaryPresentation.session.severity,
           },
           weekly: {
-            usedPercent:
-              primaryUi.weeklySeverity === 'unknown'
-                ? null
-                : (primaryState.snapshot?.weekly?.usedPercent ?? null),
-            severity: primaryUi.weeklySeverity,
+            usedPercent: primaryPresentation.weekly.usedPercent,
+            severity: primaryPresentation.weekly.severity,
           },
           animation: resolvedAnimation,
           petName:
@@ -397,6 +441,14 @@
       .catch(() => undefined)
       .then(async () => {
         let merged = { ...appSettings, ...next };
+        const primaryChanged =
+          next.primaryProvider !== appSettings.primaryProvider;
+        if (primaryChanged) {
+          merged = {
+            ...merged,
+            selectedPetId: PROVIDER_PET[next.primaryProvider],
+          };
+        }
         if (next.notificationsEnabled !== appSettings.notificationsEnabled) {
           notificationState = await serializeNotification((current) =>
             configureNotifications(
@@ -415,6 +467,9 @@
         try {
           appSettings = await gateway.updateSettings(merged);
           settingsSaveFailed = false;
+          if (primaryChanged && windowLabel === 'overlay') {
+            await loadPetPackage();
+          }
         } catch {
           const reconciled = await serializeNotification((current) =>
             configureNotifications(
@@ -427,14 +482,7 @@
           notificationDiagnostic = reconciled.diagnostic;
           settingsSaveFailed = true;
         }
-        settingsStore.replace({
-          primaryProvider: appSettings.primaryProvider,
-          bubblesEnabled: appSettings.bubblesEnabled,
-          startAtLogin: appSettings.startAtLogin,
-          notificationsEnabled: appSettings.notificationsEnabled,
-          secondaryNotificationsEnabled:
-            appSettings.secondaryNotificationsEnabled,
-        });
+        settingsStore.replace(toSettingsStoreState(appSettings));
       });
     settingsQueue = operation.catch(() => undefined);
     return operation;
@@ -465,6 +513,7 @@
   class:panel={windowLabel === 'panel'}
   data-collector-mode-claude={collectorMode?.claude}
   data-collector-mode-codex={collectorMode?.codex}
+  data-platform={platformCapabilities?.os ?? 'linux'}
   data-window-label={windowLabel}
 >
   <h1 class="visually-hidden">CacheBite</h1>
@@ -477,8 +526,14 @@
     <UsagePanel
       providers={panelProviders}
       selected={$providersStore.selected}
+      primary={$settingsStore.primaryProvider}
       refreshing={$providersStore.refreshing[$providersStore.selected]}
-      onSelect={(provider) => providersStore.selectTab(provider)}
+      onSelect={(provider) => {
+        providersStore.selectTab(provider);
+        if (provider !== $settingsStore.primaryProvider) {
+          void changeSettings({ ...$settingsStore, primaryProvider: provider });
+        }
+      }}
       onRefresh={(provider) => providersStore.requestRefresh(provider)}
       onPrimary={(provider) =>
         void changeSettings({ ...$settingsStore, primaryProvider: provider })}

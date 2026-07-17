@@ -7,7 +7,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use super::{path_lock, quarantine, write_json_atomically};
-use crate::domain::Provider;
+use crate::domain::{is_valid_pet_id, Provider};
 
 const SETTINGS_SCHEMA_VERSION: u32 = 3;
 
@@ -42,7 +42,7 @@ impl Default for Settings {
         Self {
             schema_version: SETTINGS_SCHEMA_VERSION,
             primary_provider: Provider::Claude,
-            selected_pet_id: "idle".into(),
+            selected_pet_id: "cat".into(),
             bubble_enabled: true,
             start_at_login: false,
             notification_enabled: false,
@@ -136,6 +136,17 @@ impl SettingsRepository {
         };
         if let Ok(settings) = serde_json::from_slice::<Settings>(&bytes) {
             if validate(&settings).is_ok() {
+                if settings.selected_pet_id == "idle" {
+                    let migrated = Settings {
+                        selected_pet_id: match settings.primary_provider {
+                            Provider::Claude => "cat".into(),
+                            Provider::Codex => "corgi".into(),
+                        },
+                        ..settings
+                    };
+                    write_json_atomically(&self.path, &migrated)?;
+                    return Ok(migrated);
+                }
                 return Ok(settings);
             }
         }
@@ -193,15 +204,7 @@ fn validate(settings: &Settings) -> io::Result<()> {
             "unsupported settings schema",
         ));
     }
-    let pet_id = settings.selected_pet_id.as_bytes();
-    if pet_id.is_empty()
-        || pet_id.len() > 64
-        || !pet_id[0].is_ascii_lowercase()
-        || !pet_id[pet_id.len() - 1].is_ascii_alphanumeric()
-        || pet_id
-            .iter()
-            .any(|byte| !byte.is_ascii_lowercase() && !byte.is_ascii_digit() && *byte != b'-')
-    {
+    if !is_valid_pet_id(&settings.selected_pet_id) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "pet id is invalid",

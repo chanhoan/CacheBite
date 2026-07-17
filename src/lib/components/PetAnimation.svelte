@@ -1,6 +1,4 @@
 <script>
-  import { onMount } from 'svelte';
-
   /** @type {{ animation: import('../assets/resolver').ResolvedAnimation; label: string }} */
   let { animation, label } = $props();
   let frameIndex = $state(0);
@@ -11,11 +9,14 @@
       : animation.sources[frameIndex % animation.sources.length],
   );
 
-  onMount(() => {
+  $effect(() => {
+    frameIndex = 0;
     if (animation.type !== 'frames' || animation.sources.length < 2) return;
+    const sources = animation.sources;
+    const frameDurationMs = animation.frameDurationMs;
     const timer = window.setInterval(() => {
-      frameIndex = (frameIndex + 1) % animation.sources.length;
-    }, animation.frameDurationMs);
+      frameIndex = (frameIndex + 1) % sources.length;
+    }, frameDurationMs);
     return () => window.clearInterval(timer);
   });
 </script>

@@ -1,3 +1,4 @@
+use crate::domain::is_valid_pet_id;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -87,32 +88,64 @@ impl PetPackageRepository {
         }
         Ok(PetPackage {
             manifest,
-            asset_base_url: format!("asset://localhost/pets/{id}/"),
+            asset_base_url: normalize_asset_root(&root.to_string_lossy()),
         })
+    }
+
+    pub fn should_preserve_installed(&self, id: &str) -> bool {
+        let Ok(package) = self.load(id) else {
+            return false;
+        };
+        let bundled_name = match id {
+            "cat" => "Cat",
+            "corgi" => "Corgi",
+            _ => return true,
+        };
+        if package.manifest.display_name != bundled_name {
+            return true;
+        }
+        let prefix = format!("frames/{id}_");
+        package
+            .manifest
+            .animations
+            .values()
+            .flat_map(paths)
+            .all(|path| path.starts_with(&prefix))
     }
 }
 
-fn paths(animation: &Animation) -> Vec<&str> {
+fn normalize_asset_root(raw: &str) -> String {
+    let normalized = raw.replace('\\', "/");
+    let without_verbatim_prefix = normalized.strip_prefix("//?/").unwrap_or(&normalized);
+    format!("{}/", without_verbatim_prefix.trim_end_matches('/'))
+}
+
+fn paths(animation: &Animation) -> &[String] {
     match animation {
-        Animation::Image { source } => vec![source],
-        Animation::Frames { frames, .. } => frames.iter().map(String::as_str).collect(),
+        Animation::Image { source } => std::slice::from_ref(source),
+        Animation::Frames { frames, .. } => frames,
     }
 }
 fn validate_id(id: &str) -> io::Result<()> {
-    let bytes = id.as_bytes();
-    if bytes.is_empty()
-        || bytes.len() > 64
-        || !bytes[0].is_ascii_lowercase()
-        || !bytes[bytes.len() - 1].is_ascii_alphanumeric()
-        || bytes
-            .iter()
-            .any(|byte| !byte.is_ascii_lowercase() && !byte.is_ascii_digit() && *byte != b'-')
-    {
+    if !is_valid_pet_id(id) {
         Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "invalid pet id",
         ))
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod asset_root_tests {
+    #[test]
+    fn normalizes_windows_verbatim_paths_for_tauri_asset_urls() {
+        assert_eq!(
+            super::normalize_asset_root(
+                r"\\?\C:\Users\chanhoan\AppData\Roaming\dev.cachebite.app\pets\cat"
+            ),
+            "C:/Users/chanhoan/AppData/Roaming/dev.cachebite.app/pets/cat/"
+        );
     }
 }

@@ -1,9 +1,16 @@
 use super::CollectorError;
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
-use std::{collections::BTreeMap, fs::File, io::Read, path::PathBuf};
+use std::{collections::BTreeMap, fs::File, future::Future, io::Read, path::PathBuf, pin::Pin};
+use zeroize::Zeroize;
 
-const MAX_CREDENTIAL_BYTES: u64 = 64 * 1024;
+pub(crate) const MAX_CREDENTIAL_BYTES: u64 = 64 * 1024;
+
+pub trait ClaudeTokenSource: Send + Sync {
+    fn claude_token(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Result<SecretString, CollectorError>> + Send + '_>>;
+}
 
 #[derive(Clone)]
 pub struct CredentialLocations {
@@ -62,6 +69,14 @@ impl CredentialBroker {
     }
 }
 
+impl ClaudeTokenSource for CredentialBroker {
+    fn claude_token(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Result<SecretString, CollectorError>> + Send + '_>> {
+        Box::pin(std::future::ready(self.claude_token()))
+    }
+}
+
 fn read_token(path: &std::path::Path) -> Result<Option<SecretString>, ()> {
     let mut file = match File::open(path) {
         Ok(file) => file,
@@ -80,14 +95,30 @@ fn read_token(path: &std::path::Path) -> Result<Option<SecretString>, ()> {
     if contents.len() as u64 > MAX_CREDENTIAL_BYTES {
         return Err(());
     }
-    let wire: ClaudeCredentials = serde_json::from_slice(&contents).map_err(|_| ())?;
-    Ok(wire
+    let result = parse_token_bytes(&contents);
+    contents.zeroize();
+    result
+}
+
+pub(crate) fn parse_token_bytes(contents: &[u8]) -> Result<Option<SecretString>, ()> {
+    if contents.len() as u64 > MAX_CREDENTIAL_BYTES {
+        return Err(());
+    }
+    let mut wire: ClaudeCredentials = serde_json::from_slice(contents).map_err(|_| ())?;
+    let token = wire
         .claude_ai_oauth
-        .and_then(|oauth| oauth.access_token)
-        .or(wire.oauth_access_token)
-        .or(wire.access_token)
-        .filter(|value| !value.is_empty())
-        .map(SecretString::from))
+        .as_mut()
+        .and_then(|oauth| oauth.access_token.take())
+        .or_else(|| wire.oauth_access_token.take())
+        .or_else(|| wire.access_token.take());
+    match token {
+        Some(mut value) if value.is_empty() => {
+            value.zeroize();
+            Ok(None)
+        }
+        Some(value) => Ok(Some(SecretString::from(value))),
+        None => Ok(None),
+    }
 }
 
 #[derive(Deserialize)]
@@ -100,8 +131,21 @@ struct ClaudeCredentials {
     oauth_access_token: Option<String>,
 }
 
+impl Drop for ClaudeCredentials {
+    fn drop(&mut self) {
+        self.access_token.zeroize();
+        self.oauth_access_token.zeroize();
+    }
+}
+
 #[derive(Deserialize)]
 struct OAuthCredentials {
     #[serde(rename = "accessToken")]
     access_token: Option<String>,
+}
+
+impl Drop for OAuthCredentials {
+    fn drop(&mut self) {
+        self.access_token.zeroize();
+    }
 }

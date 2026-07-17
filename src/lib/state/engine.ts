@@ -95,15 +95,11 @@ export function derivePetUiState(
     state.snapshot === null
       ? null
       : nowMs - Date.parse(state.snapshot.capturedAt);
-  const expired =
-    age !== null && (!Number.isFinite(age) || age > SNAPSHOT_TTL_MS);
   let system: SystemState = state.status;
   const isBlockingStatus =
     state.status === 'auth_required' || state.status === 'unavailable';
-  if (state.snapshot !== null && !expired && !isBlockingStatus)
+  if (state.snapshot !== null && !isBlockingStatus)
     system = 'active';
-  if (expired && !isBlockingStatus)
-    system = state.lastFailure === 'network' ? 'offline' : 'error';
   const sessionSeverity =
     system === 'active' ? windowSeverity(state, 'session') : 'unknown';
   const weeklySeverity =
@@ -117,7 +113,10 @@ export function derivePetUiState(
   );
   return {
     system,
-    stale: system === 'active' && age !== null && age > FRESH_MAX_AGE_MS,
+    stale:
+      system === 'active' &&
+      age !== null &&
+      (!Number.isFinite(age) || age > FRESH_MAX_AGE_MS),
     sessionSeverity,
     weeklySeverity,
     petMood,
