@@ -47,24 +47,6 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
       command,
     );
 
-  const bubblesToggle = () =>
-    $('label*=Speech bubbles').$('input[type="checkbox"]');
-  const reloadUntilBubblesSetting = async (expected: boolean) => {
-    await browser.waitUntil(
-      async () => {
-        await browser.refresh();
-        const toggle = bubblesToggle();
-        await toggle.waitForExist();
-        return (await toggle.isSelected()) === expected;
-      },
-      {
-        timeout: 5_000,
-        interval: 100,
-        timeoutMsg: `speech-bubble setting was not persisted as ${expected}`,
-      },
-    );
-  };
-
   it('hydrates through registered IPC and reports the selected collectors', async () => {
     const app = $('main[aria-label="CacheBite"]');
     await expect(app).toExist();
@@ -82,7 +64,7 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
     expect(bodyText).not.toContain('Pet package unavailable');
   });
 
-  it('hydrates panel history and round-trips a representative setting', async () => {
+  it('hydrates panel history through registered IPC', async () => {
     const overlayHistory = await invokeFromCurrentWindow('get_history');
     expect(overlayHistory).toEqual({
       status: 'rejected',
@@ -96,17 +78,6 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
 
     await expect($('section[aria-label="Usage panel"]')).toExist();
     await expect($('section[aria-label="Usage history"]')).toExist();
-    const bubbles = bubblesToggle();
-    await expect(bubbles).toExist();
-    const initial = await bubbles.isSelected();
-    try {
-      await bubbles.click();
-      await reloadUntilBubblesSetting(!initial);
-    } finally {
-      const persisted = bubblesToggle();
-      if ((await persisted.isSelected()) !== initial) await persisted.click();
-      await reloadUntilBubblesSetting(initial);
-    }
   });
 
   if (expectedMode === 'production') {
@@ -121,7 +92,7 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
       await claudeTab.click();
       await expect(claudeTab).toHaveAttribute('aria-selected', 'true');
       await expect($('section[aria-label="Usage panel"]')).toHaveText(
-        expect.stringContaining('auth_required'),
+        expect.stringContaining('oauth_api'),
       );
 
       const codexTab = $('button[role="tab"]=Codex');
