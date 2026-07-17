@@ -157,6 +157,7 @@ fn fake_wsl_codex(script: &str) -> (TempDir, WslCodexCollector) {
     let executable = root.path().join("fake-wsl.exe");
     fs::write(&executable, script).unwrap();
     fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    let executable = fs::canonicalize(executable).unwrap();
     let factory = WslCommandFactory::with_executable_for_test(executable);
     (root, WslCodexCollector::new(factory))
 }
