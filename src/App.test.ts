@@ -398,7 +398,9 @@ describe('application composition root', () => {
   it('coalesces a burst of live history refreshes into one follow-up request', async () => {
     window.history.replaceState({}, '', '/?window=panel');
     const { gateway, emit } = fixture();
-    let resolveLiveHistory!: (history: Awaited<ReturnType<AppGateway['getHistory']>>) => void;
+    let resolveLiveHistory!: (
+      history: Awaited<ReturnType<AppGateway['getHistory']>>,
+    ) => void;
     vi.mocked(gateway.getHistory)
       .mockResolvedValueOnce({ claude: [], codex: [] })
       .mockImplementationOnce(
@@ -411,7 +413,9 @@ describe('application composition root', () => {
 
     render(App, { props: { gateway, notificationAdapter: notifications } });
     await screen.findByText('Pro');
-    await waitFor(() => expect(gateway.listenProviderStates).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(gateway.listenProviderStates).toHaveBeenCalledOnce(),
+    );
 
     emit(active('claude', 2, 92));
     await waitFor(() => expect(gateway.getHistory).toHaveBeenCalledTimes(2));

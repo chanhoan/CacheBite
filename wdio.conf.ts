@@ -1,4 +1,5 @@
 import type { Options } from '@wdio/types';
+import { resolve } from 'node:path';
 
 const collectorMode = process.env.CACHEBITE_EXPECTED_COLLECTOR_MODE;
 if (collectorMode !== 'fixture' && collectorMode !== 'production') {
@@ -8,7 +9,13 @@ if (collectorMode !== 'fixture' && collectorMode !== 'production') {
 }
 const application =
   process.env.CACHEBITE_APPLICATION ??
-  `./src-tauri/target/debug/cachebite${process.platform === 'win32' ? '.exe' : ''}`;
+  resolve(
+    process.cwd(),
+    'src-tauri',
+    'target',
+    'debug',
+    `cachebite${process.platform === 'win32' ? '.exe' : ''}`,
+  );
 
 export const config: Options.Testrunner = {
   runner: 'local',

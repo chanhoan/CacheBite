@@ -98,8 +98,7 @@ export function derivePetUiState(
   let system: SystemState = state.status;
   const isBlockingStatus =
     state.status === 'auth_required' || state.status === 'unavailable';
-  if (state.snapshot !== null && !isBlockingStatus)
-    system = 'active';
+  if (state.snapshot !== null && !isBlockingStatus) system = 'active';
   const sessionSeverity =
     system === 'active' ? windowSeverity(state, 'session') : 'unknown';
   const weeklySeverity =

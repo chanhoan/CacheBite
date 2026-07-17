@@ -147,6 +147,8 @@ describe('v1.1 animation resolution', () => {
         'asset://localhost/pets/test/',
         'idle_critical',
       ),
-    ).toEqual(resolvePetAnimation(manifest, 'asset://localhost/pets/test/', 'idle'));
+    ).toEqual(
+      resolvePetAnimation(manifest, 'asset://localhost/pets/test/', 'idle'),
+    );
   });
 });

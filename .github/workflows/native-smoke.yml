@@ -12,7 +12,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        # The official tauri-driver used by this smoke suite supports Windows
+        # and Linux. macOS needs the embedded provider (and its test-only
+        # plugin) or a CrabNebula credential, neither of which this app uses.
+        os: [windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     env:
@@ -52,7 +55,7 @@ jobs:
       - name: Install native display prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xvfb weston
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf webkit2gtk-driver xvfb weston
       - run: pnpm install --frozen-lockfile
       - run: cargo test --manifest-path src-tauri/Cargo.toml --all-features
       - run: pnpm tauri build --debug --no-bundle
@@ -91,7 +94,7 @@ jobs:
       - name: Install native display prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xvfb
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf webkit2gtk-driver xvfb
       - run: pnpm install --frozen-lockfile
       - run: cargo test --manifest-path src-tauri/Cargo.toml --all-features
       - run: pnpm tauri build --debug --no-bundle

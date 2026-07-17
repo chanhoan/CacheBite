@@ -977,6 +977,7 @@ async fn app_server_child_is_reaped_after_success() {
     );
     fs::write(&executable, script).unwrap();
     fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    let executable = fs::canonicalize(executable).unwrap();
     assert!(collect_app_server(&executable, OffsetDateTime::UNIX_EPOCH)
         .await
         .is_ok());
@@ -1004,6 +1005,7 @@ async fn cancelling_collection_kills_and_reaps_process_group() {
     );
     fs::write(&executable, script).unwrap();
     fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    let executable = fs::canonicalize(executable).unwrap();
     let task =
         tokio::spawn(
             async move { collect_app_server(&executable, OffsetDateTime::UNIX_EPOCH).await },

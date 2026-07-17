@@ -47,7 +47,9 @@ describe('renderer presentation projections', () => {
       Date.parse(snapshot.capturedAt),
     ).state;
 
-    expect(toProviderPresentation(state, Date.parse(snapshot.capturedAt))).toMatchObject({
+    expect(
+      toProviderPresentation(state, Date.parse(snapshot.capturedAt)),
+    ).toMatchObject({
       provider: 'codex',
       system: 'active',
       stale: false,

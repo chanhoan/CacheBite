@@ -1,9 +1,11 @@
 ## Overview
+
 <!-- Briefly describe the changes and the related issue. Explain what and why, not how. -->
 
 <!-- Resolves: #(Issue Number) -->
 
 ## PR Type
+
 What kind of change does this PR introduce?
 
 - [ ] New feature
@@ -19,6 +21,7 @@ What kind of change does this PR introduce?
 - [ ] Delete a file or folder
 
 ## PR Checklist
+
 Please confirm this PR meets the following requirements.
 
 - [ ] Commit messages follow the commit message convention.
