@@ -194,4 +194,22 @@ describe('native production-composition spec', () => {
       "expect.stringContaining('fullscreen detection is unavailable')",
     );
   });
+
+  it('asserts credential-free provider reasons at the native IPC boundary', () => {
+    expect(nativeSpec).toMatch(
+      /invokeFromCurrentWindow<ProviderStates>\(\s*'get_provider_states',?\s*\)/,
+    );
+    expect(nativeSpec).toMatch(
+      /providerStates\.value\.claude\.unavailable_reason\)\.toBe\(\s*'not_signed_in',?\s*\)/,
+    );
+    expect(nativeSpec).toMatch(
+      /providerStates\.value\.codex\.unavailable_reason\)\.toBe\(\s*'not_installed',?\s*\)/,
+    );
+    expect(nativeSpec).toContain(
+      'expect(providerStates.value.claude.snapshot).toBeNull()',
+    );
+    expect(nativeSpec).toContain(
+      'expect(providerStates.value.codex.snapshot).toBeNull()',
+    );
+  });
 });

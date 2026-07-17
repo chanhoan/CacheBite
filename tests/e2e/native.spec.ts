@@ -1,5 +1,14 @@
 const expectedMode = process.env.CACHEBITE_EXPECTED_COLLECTOR_MODE;
 
+type ProviderStates = {
+  claude: { unavailable_reason: string | null; snapshot: unknown | null };
+  codex: { unavailable_reason: string | null; snapshot: unknown | null };
+};
+
+type InvokeResult<T> =
+  | { status: 'resolved'; value: T }
+  | { status: 'rejected'; reason: string };
+
 if (expectedMode !== 'fixture' && expectedMode !== 'production') {
   throw new Error(
     'CACHEBITE_EXPECTED_COLLECTOR_MODE must be fixture or production',
@@ -35,12 +44,9 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
     await switchToCacheBiteWindow('overlay');
   });
 
-  const invokeFromCurrentWindow = async (command: string) =>
+  const invokeFromCurrentWindow = async <T = undefined>(command: string) =>
     browser.executeAsync(
-      (
-        requestedCommand: string,
-        done: (result: { status: string; reason?: string }) => void,
-      ) => {
+      (requestedCommand: string, done: (result: InvokeResult<T>) => void) => {
         const internals = (
           window as Window & {
             __TAURI_INTERNALS__: {
@@ -49,8 +55,8 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
           }
         ).__TAURI_INTERNALS__;
         void internals
-          .invoke(requestedCommand)
-          .then(() => done({ status: 'resolved' }))
+          .invoke<T>(requestedCommand)
+          .then((value) => done({ status: 'resolved', value }))
           .catch((reason: unknown) =>
             done({ status: 'rejected', reason: String(reason) }),
           );
@@ -106,6 +112,47 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
         expect.stringContaining('oauth_api'),
       );
 
+      let providerStates: InvokeResult<ProviderStates> | undefined;
+      try {
+        await browser.waitUntil(
+          async () => {
+            providerStates = await invokeFromCurrentWindow<ProviderStates>(
+              'get_provider_states',
+            );
+            return (
+              providerStates.status === 'resolved' &&
+              providerStates.value.claude.unavailable_reason ===
+                'not_signed_in' &&
+              providerStates.value.codex.unavailable_reason ===
+                'not_installed' &&
+              providerStates.value.claude.snapshot === null &&
+              providerStates.value.codex.snapshot === null
+            );
+          },
+          {
+            timeout: 15_000,
+            interval: 250,
+            timeoutMsg:
+              'Provider collectors did not publish unavailable states',
+          },
+        );
+      } catch (error) {
+        throw new Error(
+          `Provider states were not ready: ${JSON.stringify(providerStates)}`,
+          { cause: error },
+        );
+      }
+      if (!providerStates || providerStates.status !== 'resolved')
+        throw new Error('Provider states were not available from the panel');
+      expect(providerStates.value.claude.unavailable_reason).toBe(
+        'not_signed_in',
+      );
+      expect(providerStates.value.codex.unavailable_reason).toBe(
+        'not_installed',
+      );
+      expect(providerStates.value.claude.snapshot).toBeNull();
+      expect(providerStates.value.codex.snapshot).toBeNull();
+
       const codexTab = $('button[role="tab"]=Codex');
       try {
         await codexTab.click();
@@ -116,9 +163,6 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
         );
         await expect($('body')).not.toHaveText(
           expect.stringContaining('autostart integration is unavailable'),
-        );
-        await expect($('section[aria-label="Usage panel"]')).toHaveText(
-          expect.stringContaining('unavailable'),
         );
       } finally {
         await claudeTab.click();
