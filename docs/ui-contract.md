@@ -139,6 +139,12 @@ ProviderUiSnapshot = ProviderUsageSnapshot +
 - `unknown` 창은 중립 토큰(`sev.unknown`)의 비채움 트랙만 표시.
 - `stale`이면 링 색을 유지한 채 불투명도를 낮춘다 (시맨틱: `overlay.stale-dim`).
 
+확정 시각 토큰은 라이트/다크 순서로 `ok` `#22c55e`/`#4ade80`, `warn`
+`#f59e0b`/`#fbbf24`, `critical` `#f97316`/`#fb923c`, `exhausted`
+`#dc2626`/`#f87171`, `unknown` `#c3c8ce`/`#4b5563`이며,
+`overlay.stale-dim`은 `0.42`다. 실제 사용처는 `src/lib/styles/tokens.css`의
+`--sev-*`와 `--overlay-stale-dim` 변수를 단일 원본으로 삼는다.
+
 ### 4.2 시스템 배지
 
 `system != active`일 때 링을 숨기고 펫 모서리에 단일 배지를 표시한다.

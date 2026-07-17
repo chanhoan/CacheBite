@@ -28,6 +28,8 @@ describe('PetOverlay', () => {
 
     expect(screen.getByLabelText('5-hour usage: 74%')).toBeTruthy();
     expect(screen.getByLabelText('Weekly usage: 93%')).toBeTruthy();
+    expect(screen.getByText('5H')).toBeTruthy();
+    expect(screen.getByText('WK')).toBeTruthy();
     expect(screen.queryByRole('status')).toBeNull();
   });
 
@@ -97,6 +99,7 @@ describe('PetOverlay', () => {
     });
 
     expect(screen.getByRole('status').getAttribute('aria-label')).toBe(label);
+    expect(screen.getByRole('status').querySelector('svg')).toBeTruthy();
     expect(container.querySelector('[data-testid="usage-ring"]')).toBeNull();
   });
 });

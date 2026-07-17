@@ -1,4 +1,4 @@
-use super::{broker::CredentialBroker, Collector, CollectorError, MAX_RESPONSE_BYTES};
+use super::{broker::ClaudeTokenSource, Collector, CollectorError, MAX_RESPONSE_BYTES};
 use crate::domain::{CollectionOutcome, Provider, ProviderUsageSnapshot, Source, UsageWindow};
 use reqwest::{
     header::{HeaderMap, HeaderName, HeaderValue},
@@ -9,12 +9,16 @@ use serde::Deserialize;
 use time::OffsetDateTime;
 
 pub struct ClaudeCollector {
-    broker: std::sync::Arc<CredentialBroker>,
+    token_source: std::sync::Arc<dyn ClaudeTokenSource>,
+    client: reqwest::Client,
 }
 
 impl ClaudeCollector {
-    pub fn new(broker: std::sync::Arc<CredentialBroker>) -> Self {
-        Self { broker }
+    pub fn new(token_source: std::sync::Arc<dyn ClaudeTokenSource>) -> Self {
+        Self {
+            token_source,
+            client: secure_client().expect("static secure Claude client configuration is valid"),
+        }
     }
 }
 
@@ -27,8 +31,10 @@ impl Collector for ClaudeCollector {
         &self,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = CollectionOutcome> + Send + '_>> {
         Box::pin(async move {
-            let result = match self.broker.claude_token() {
-                Ok(token) => fetch_usage(token, OffsetDateTime::now_utc()).await,
+            let result = match self.token_source.claude_token().await {
+                Ok(token) => {
+                    fetch_usage_with_client(&self.client, token, OffsetDateTime::now_utc()).await
+                }
                 Err(error) => Err(error),
             };
             match result {
@@ -98,13 +104,13 @@ impl ClaudeRequestSpec {
     }
 }
 
-pub async fn fetch_usage(
+async fn fetch_usage_with_client(
+    client: &reqwest::Client,
     token: SecretString,
     now: OffsetDateTime,
 ) -> Result<ProviderUsageSnapshot, CollectorError> {
-    let client = secure_client()?;
     let mut response = ClaudeRequestSpec::new(token)?
-        .into_request(&client)
+        .into_request(client)
         .send()
         .await
         .map_err(|error| {
@@ -115,6 +121,11 @@ pub async fn fetch_usage(
             }
         })?;
     if !response.status().is_success() {
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "[CacheBite:claude] usage endpoint returned HTTP {}",
+            response.status()
+        );
         return Err(CollectorError::Provider);
     }
     if response
@@ -144,11 +155,6 @@ fn secure_client() -> Result<reqwest::Client, CollectorError> {
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|_| CollectorError::Internal)
-}
-
-#[cfg(test)]
-pub(crate) fn redirects_are_disabled() -> bool {
-    true
 }
 
 pub fn parse_usage(

@@ -40,6 +40,7 @@ export const rendererFixtureGateway: AppGateway = {
     secondaryNotificationsEnabled: false,
     logicalPosition: { x: 0, y: 0 },
   }),
+  listenSettings: async () => () => undefined,
   getPetPackage: async () => ({
     manifest: {
       id: 'fixture-pet',
@@ -51,6 +52,7 @@ export const rendererFixtureGateway: AppGateway = {
     assetBaseUrl: 'asset://localhost/pets/fixture-pet/',
   }),
   getPlatformCapabilities: async () => ({
+    os: 'linux',
     always_on_top: { status: 'available' },
     fullscreen_detection: { status: 'available' },
     autostart: { status: 'available' },

@@ -40,6 +40,18 @@ const settingsWire = {
 
 describe('typed Tauri gateway', () => {
   beforeEach(() => {
+    Object.assign(
+      (
+        window as unknown as Window & {
+          __TAURI_INTERNALS__: {
+            convertFileSrc(path: string, protocol: string): string;
+          };
+        }
+      ).__TAURI_INTERNALS__,
+      {
+        convertFileSrc: vi.fn(() => 'asset://localhost/pets/pet/'),
+      },
+    );
     windowMock.moved = undefined;
     windowMock.scaleFactor.mockReset();
     windowMock.unlisten.mockReset();
@@ -94,6 +106,7 @@ describe('typed Tauri gateway', () => {
       if (command === 'get_provider_states') return { claude: {}, codex: {} };
       if (command === 'get_platform_capabilities')
         return {
+          os: 'windows',
           always_on_top: { status: 'available' },
           fullscreen_detection: { status: 'available' },
           autostart: { status: 'available' },
@@ -114,9 +127,10 @@ describe('typed Tauri gateway', () => {
       codex: 'fixture',
     });
     await tauriGateway.getProviderStates();
-    expect(
-      (await tauriGateway.getPlatformCapabilities()).autostart.status,
-    ).toBe('available');
+    expect(await tauriGateway.getPlatformCapabilities()).toMatchObject({
+      os: 'windows',
+      autostart: { status: 'available' },
+    });
     expect(await tauriGateway.getPetPackage()).toEqual({
       manifest: { id: 'pet' },
       assetBaseUrl: 'asset://localhost/pets/pet/',

@@ -1,4 +1,5 @@
 import type { Options } from '@wdio/types';
+import { resolve } from 'node:path';
 
 const collectorMode = process.env.CACHEBITE_EXPECTED_COLLECTOR_MODE;
 if (collectorMode !== 'fixture' && collectorMode !== 'production') {
@@ -6,7 +7,16 @@ if (collectorMode !== 'fixture' && collectorMode !== 'production') {
     'Set CACHEBITE_EXPECTED_COLLECTOR_MODE to fixture or production',
   );
 }
-const application = `./src-tauri/target/debug/cachebite${process.platform === 'win32' ? '.exe' : ''}`;
+const application =
+  process.env.CACHEBITE_APPLICATION ??
+  resolve(
+    process.cwd(),
+    'src-tauri',
+    'target',
+    'debug',
+    `cachebite${process.platform === 'win32' ? '.exe' : ''}`,
+  );
+const driverProvider = 'embedded';
 
 export const config: Options.Testrunner = {
   runner: 'local',
@@ -14,7 +24,15 @@ export const config: Options.Testrunner = {
   maxInstances: 1,
   framework: 'mocha',
   reporters: ['spec'],
-  services: ['tauri'],
+  services: [
+    [
+      'tauri',
+      {
+        application,
+        driverProvider,
+      },
+    ],
+  ],
   capabilities: [
     {
       browserName: 'tauri',
@@ -22,4 +40,7 @@ export const config: Options.Testrunner = {
     },
   ],
   waitforTimeout: 15_000,
+  mochaOpts: {
+    timeout: 60_000,
+  },
 };

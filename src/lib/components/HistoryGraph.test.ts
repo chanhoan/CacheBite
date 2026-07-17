@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
 import HistoryGraph from './HistoryGraph.svelte';
 
 const samples = [
@@ -56,5 +57,22 @@ describe('HistoryGraph', () => {
     await fireEvent.keyDown(session, { key: 'ArrowRight' });
     expect(onWindowChange).toHaveBeenCalledWith('weekly');
     expect(document.activeElement).toBe(weekly);
+  });
+
+  it('bounds rendered circles for a retained 3,000-sample history', () => {
+    const longHistory = Array.from({ length: 3_000 }, (_, index) => ({
+      capturedAt: `2026-07-16T00:${String(index).padStart(4, '0')}:00Z`,
+      session: { usedPercent: index % 101, startsNewSegment: index === 1_500 },
+      weekly: null,
+    }));
+    const { container } = render(HistoryGraph, {
+      props: { samples: longHistory, window: 'session' },
+    });
+
+    expect(container.querySelectorAll('circle')).toHaveLength(240);
+    expect(screen.getAllByTestId('history-segment')).toHaveLength(2);
+    expect(
+      screen.getByText('Showing a sampled view of 3,000 points.'),
+    ).toBeTruthy();
   });
 });

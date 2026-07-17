@@ -26,7 +26,7 @@ const active = (
       resets_at: null,
     },
     weekly: { used_percent: 40, window_minutes: 10_080, resets_at: null },
-    captured_at: '2026-07-17T00:00:00Z',
+    captured_at: new Date().toISOString(),
     source: provider === 'claude' ? 'oauth_api' : 'cli_rpc',
     is_cached: false,
     revision,
@@ -39,6 +39,9 @@ const active = (
 
 const fixture = () => {
   let listener: (state: ProviderBackendStateWire) => void = () => undefined;
+  let settingsListener: (
+    settings: Awaited<ReturnType<AppGateway['getSettings']>>,
+  ) => void = () => undefined;
   const gateway: AppGateway = {
     getCollectorMode: vi.fn().mockResolvedValue({
       claude: 'fixture',
@@ -55,13 +58,17 @@ const fixture = () => {
     getSettings: vi.fn(async () => ({
       schemaVersion: 3,
       primaryProvider: 'claude' as const,
-      selectedPetId: 'fixture-pet',
+      selectedPetId: 'cat',
       bubblesEnabled: true,
       startAtLogin: false,
       notificationsEnabled: false,
       secondaryNotificationsEnabled: false,
       logicalPosition: { x: 0, y: 0 },
     })),
+    listenSettings: vi.fn(async (next) => {
+      settingsListener = next;
+      return () => undefined;
+    }),
     getPetPackage: vi.fn(async () => ({
       manifest: {
         id: 'fixture-pet',
@@ -73,6 +80,7 @@ const fixture = () => {
       assetBaseUrl: 'asset://localhost/pets/fixture-pet/',
     })),
     getPlatformCapabilities: vi.fn(async () => ({
+      os: 'linux' as const,
       always_on_top: { status: 'available' as const },
       fullscreen_detection: { status: 'available' as const },
       autostart: { status: 'available' as const },
@@ -96,6 +104,8 @@ const fixture = () => {
   return {
     gateway,
     emit: (state: ProviderBackendStateWire) => listener(state),
+    emitSettings: (settings: Awaited<ReturnType<AppGateway['getSettings']>>) =>
+      settingsListener(settings),
   };
 };
 
@@ -128,6 +138,53 @@ describe('application composition root', () => {
     await fireEvent.pointerDown(overlay, { clientX: 10, clientY: 10 });
     await fireEvent.pointerUp(overlay, { clientX: 12, clientY: 10 });
     expect(gateway.showPanel).toHaveBeenCalledOnce();
+    expect(
+      screen.getByLabelText('CacheBite').getAttribute('data-platform'),
+    ).toBe('linux');
+    expect(gateway.getPlatformCapabilities).toHaveBeenCalledOnce();
+  });
+
+  it('does not perform a forbidden settings write during overlay startup', async () => {
+    const { gateway } = fixture();
+    vi.mocked(gateway.getSettings).mockResolvedValue({
+      ...(await gateway.getSettings()),
+      primaryProvider: 'codex',
+      selectedPetId: 'cat',
+    });
+
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+
+    await screen.findByLabelText('CacheBite pet status');
+    expect(gateway.updateSettings).not.toHaveBeenCalled();
+    expect(gateway.getPetPackage).toHaveBeenCalledOnce();
+  });
+
+  it('shows a Pet diagnostic instead of crashing on an invalid package root', async () => {
+    const { gateway } = fixture();
+    vi.mocked(gateway.getPetPackage).mockResolvedValue({
+      ...(await gateway.getPetPackage()),
+      assetBaseUrl: 'https://example.com/pets/cat/',
+    });
+
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+
+    expect(await screen.findByText('Pet package unavailable')).toBeTruthy();
+    expect(screen.queryByText('CacheBite is starting')).toBeNull();
+  });
+
+  it('reloads the running overlay pet when another window changes the primary provider', async () => {
+    const { gateway, emitSettings } = fixture();
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+    await screen.findByLabelText('CacheBite pet status');
+    await waitFor(() => expect(gateway.listenSettings).toHaveBeenCalledOnce());
+
+    emitSettings({
+      ...(await gateway.getSettings()),
+      primaryProvider: 'codex',
+      selectedPetId: 'corgi',
+    });
+
+    await waitFor(() => expect(gateway.getPetPackage).toHaveBeenCalledTimes(2));
   });
 
   it('renders a retry action when provider startup fails and recovers on retry', async () => {
@@ -148,7 +205,19 @@ describe('application composition root', () => {
     expect(gateway.getProviderStates).toHaveBeenCalledTimes(2);
   });
 
-  it('cleans the provider listener when position listener registration fails', async () => {
+  it('becomes ready even when a nonessential native listener never resolves', async () => {
+    const { gateway } = fixture();
+    vi.mocked(gateway.listenProviderStates).mockImplementation(
+      () => new Promise(() => undefined),
+    );
+
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+
+    expect(await screen.findByLabelText('CacheBite pet status')).toBeTruthy();
+    expect(screen.queryByText('CacheBite is starting')).toBeNull();
+  });
+
+  it('cleans the provider listener without blocking readiness when position listener registration fails', async () => {
     const { gateway } = fixture();
     const providerCleanup = vi.fn();
     vi.mocked(gateway.listenProviderStates).mockResolvedValue(providerCleanup);
@@ -158,11 +227,11 @@ describe('application composition root', () => {
 
     render(App, { props: { gateway, notificationAdapter: notifications } });
 
-    expect(await screen.findByText('CacheBite could not start')).toBeTruthy();
-    expect(providerCleanup).toHaveBeenCalledOnce();
+    expect(await screen.findByLabelText('CacheBite pet status')).toBeTruthy();
+    await waitFor(() => expect(providerCleanup).toHaveBeenCalledOnce());
   });
 
-  it('isolates cleanup failures and cleans listeners before retrying startup', async () => {
+  it('isolates listener cleanup failures after startup', async () => {
     const { gateway } = fixture();
     const order: string[] = [];
     const providerCleanup = vi.fn(() => {
@@ -182,10 +251,8 @@ describe('application composition root', () => {
 
     render(App, { props: { gateway, notificationAdapter: notifications } });
 
-    expect(await screen.findByText('CacheBite could not start')).toBeTruthy();
-    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByLabelText('CacheBite pet status')).toBeTruthy();
-    expect(order).toEqual(['startup', 'cleanup', 'startup']);
+    await waitFor(() => expect(order).toEqual(['startup', 'cleanup']));
   });
 
   it('cleans a provider listener that resolves after unmount', async () => {
@@ -223,6 +290,9 @@ describe('application composition root', () => {
       props: { gateway, notificationAdapter: notifications },
     });
     await screen.findByLabelText('CacheBite pet status');
+    await waitFor(() =>
+      expect(gateway.listenPositionMoved).toHaveBeenCalledOnce(),
+    );
 
     view.unmount();
 
@@ -241,12 +311,15 @@ describe('application composition root', () => {
     );
     render(App, { props: { gateway, notificationAdapter: notifications } });
     await screen.findByLabelText('CacheBite pet status');
+    await waitFor(() =>
+      expect(gateway.listenPositionMoved).toHaveBeenCalledOnce(),
+    );
 
     reportFailure('position_save_failed');
 
-    expect((await screen.findByRole('status')).textContent).toContain(
-      'Window position could not be saved',
-    );
+    expect(
+      await screen.findByText('Window position could not be saved'),
+    ).toBeTruthy();
   });
 
   it('treats reset-pending backend state as unknown before retained snapshot data', async () => {
@@ -260,7 +333,7 @@ describe('application composition root', () => {
 
     render(App, { props: { gateway, notificationAdapter: notifications } });
 
-    expect(await screen.findByText('Pro · active')).toBeTruthy();
+    expect(await screen.findByText('Pro')).toBeTruthy();
     expect(screen.getAllByText('Unknown').length).toBeGreaterThanOrEqual(2);
   });
 
@@ -286,21 +359,72 @@ describe('application composition root', () => {
     window.history.replaceState({}, '', '/?window=panel');
     const { gateway } = fixture();
     render(App, { props: { gateway, notificationAdapter: notifications } });
-    expect(await screen.findByText('Pro · active')).toBeTruthy();
+    expect(await screen.findByText('Pro')).toBeTruthy();
     expect(
       screen.getByRole('img', { name: '5-hour usage history' }),
     ).toBeTruthy();
     await fireEvent.click(screen.getByLabelText('Native notifications'));
     await waitFor(() => expect(gateway.updateSettings).toHaveBeenCalled());
+    expect(gateway.getPetPackage).not.toHaveBeenCalled();
+  });
+
+  it('makes a provider primary when its tab is selected', async () => {
+    window.history.replaceState({}, '', '/?window=panel');
+    const { gateway } = fixture();
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+
+    await fireEvent.click(await screen.findByRole('tab', { name: 'Codex' }));
+
+    await waitFor(() =>
+      expect(gateway.updateSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          primaryProvider: 'codex',
+          selectedPetId: 'corgi',
+        }),
+      ),
+    );
+    expect(screen.getByRole('tab', { name: 'Codex (primary)' })).toBeTruthy();
   });
 
   it('refreshes panel history after live provider revisions', async () => {
     window.history.replaceState({}, '', '/?window=panel');
     const { gateway, emit } = fixture();
     render(App, { props: { gateway, notificationAdapter: notifications } });
-    await screen.findByText('Pro · active');
+    await screen.findByText('Pro');
     emit(active('claude', 2, 95));
     await waitFor(() => expect(gateway.getHistory).toHaveBeenCalledTimes(2));
+  });
+
+  it('coalesces a burst of live history refreshes into one follow-up request', async () => {
+    window.history.replaceState({}, '', '/?window=panel');
+    const { gateway, emit } = fixture();
+    let resolveLiveHistory!: (
+      history: Awaited<ReturnType<AppGateway['getHistory']>>,
+    ) => void;
+    vi.mocked(gateway.getHistory)
+      .mockResolvedValueOnce({ claude: [], codex: [] })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveLiveHistory = resolve;
+          }),
+      )
+      .mockResolvedValue({ claude: [], codex: [] });
+
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+    await screen.findByText('Pro');
+    await waitFor(() =>
+      expect(gateway.listenProviderStates).toHaveBeenCalledOnce(),
+    );
+
+    emit(active('claude', 2, 92));
+    await waitFor(() => expect(gateway.getHistory).toHaveBeenCalledTimes(2));
+    emit(active('claude', 3, 93));
+    emit(active('claude', 4, 94));
+    expect(gateway.getHistory).toHaveBeenCalledTimes(2);
+
+    resolveLiveHistory({ claude: [], codex: [] });
+    await waitFor(() => expect(gateway.getHistory).toHaveBeenCalledTimes(3));
   });
 
   it('reconciles persisted notification opt-in with granted permission', async () => {
@@ -340,7 +464,10 @@ describe('application composition root', () => {
       }),
     };
     render(App, { props: { gateway, notificationAdapter: serialized } });
-    await screen.findByText('Pro · active');
+    await screen.findByText('Pro');
+    await waitFor(() =>
+      expect(gateway.listenProviderStates).toHaveBeenCalledOnce(),
+    );
     emit(active('claude', 2, 20));
     emit(active('claude', 3, 91));
     emit(active('claude', 4, 100));
@@ -474,6 +601,7 @@ describe('application composition root', () => {
     window.history.replaceState({}, '', '/?window=panel');
     const { gateway } = fixture();
     vi.mocked(gateway.getPlatformCapabilities).mockResolvedValue({
+      os: 'linux',
       always_on_top: { status: 'available' },
       fullscreen_detection: {
         status: 'unavailable',

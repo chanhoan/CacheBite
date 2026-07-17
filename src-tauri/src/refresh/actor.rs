@@ -38,6 +38,18 @@ pub trait HistoryPersistence: Send + Sync {
         snapshot: &ProviderUsageSnapshot,
         now: OffsetDateTime,
     ) -> io::Result<bool>;
+
+    fn append_success_batch(
+        &self,
+        snapshots: &[ProviderUsageSnapshot],
+        now: OffsetDateTime,
+    ) -> io::Result<usize> {
+        let mut appended = 0;
+        for snapshot in snapshots {
+            appended += usize::from(self.append_success(snapshot, now)?);
+        }
+        Ok(appended)
+    }
 }
 
 impl HistoryPersistence for HistoryRepository {
@@ -47,6 +59,14 @@ impl HistoryPersistence for HistoryRepository {
         now: OffsetDateTime,
     ) -> io::Result<bool> {
         HistoryRepository::append_success(self, snapshot, now)
+    }
+
+    fn append_success_batch(
+        &self,
+        snapshots: &[ProviderUsageSnapshot],
+        now: OffsetDateTime,
+    ) -> io::Result<usize> {
+        HistoryRepository::append_success_batch(self, snapshots, now)
     }
 }
 
@@ -401,19 +421,28 @@ pub(crate) fn retry_pending_history(
     persistence: &RefreshPersistence,
     pending_history: &mut VecDeque<ProviderUsageSnapshot>,
 ) {
-    while let Some(snapshot) = pending_history.pop_front() {
-        if persistence
-            .history
-            .append_success(&snapshot, OffsetDateTime::now_utc())
-            .is_err()
-        {
-            (persistence.diagnostic)(PersistenceDiagnostic {
-                provider,
-                category: PersistenceCategory::History,
-            });
-            pending_history.push_front(snapshot);
-            break;
-        }
+    const MAX_HISTORY_BATCH: usize = 128;
+    let batch: Vec<_> = pending_history
+        .iter()
+        .take(MAX_HISTORY_BATCH)
+        .cloned()
+        .collect();
+    if batch.is_empty() {
+        return;
+    }
+    if persistence
+        .history
+        .append_success_batch(&batch, OffsetDateTime::now_utc())
+        .is_err()
+    {
+        (persistence.diagnostic)(PersistenceDiagnostic {
+            provider,
+            category: PersistenceCategory::History,
+        });
+        return;
+    }
+    for _ in 0..batch.len() {
+        pending_history.pop_front();
     }
 }
 

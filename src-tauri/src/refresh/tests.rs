@@ -506,7 +506,9 @@ fn pending_history_is_capped_to_repository_limit_and_retries_retained_fifo() {
     );
 
     *history.failing.lock().expect("failing") = false;
-    retry_pending_history(Provider::Claude, &persistence, &mut pending);
+    while !pending.is_empty() {
+        retry_pending_history(Provider::Claude, &persistence, &mut pending);
+    }
     assert!(pending.is_empty());
     let captured = history.captured.lock().expect("captured");
     assert_eq!(captured.len(), MAX_PENDING_HISTORY);

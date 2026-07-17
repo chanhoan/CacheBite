@@ -38,6 +38,12 @@
     stroke-dasharray={`${percent(weekly)} 100`}
     aria-label={label('Weekly', weekly)}
   />
+  <text class="ring-label" x="50" y="4" text-anchor="middle" aria-hidden="true"
+    >5H</text
+  >
+  <text class="ring-label" x="50" y="99" text-anchor="middle" aria-hidden="true"
+    >WK</text
+  >
 </svg>
 
 <style>
@@ -47,28 +53,36 @@
     stroke-linecap: round;
   }
   .ring.stale {
-    opacity: var(--overlay-stale-dim, 0.45);
+    opacity: var(--overlay-stale-dim);
   }
   path {
-    stroke-width: 6;
+    stroke-width: 6.5;
   }
   .track {
-    stroke: var(--color-status-unknown, #777);
+    stroke: var(--sev-unknown);
     opacity: 0.28;
   }
   .usage {
-    stroke: var(--color-status-unknown, #777);
+    stroke: var(--sev-unknown);
   }
   .usage[data-severity='ok'] {
-    stroke: var(--color-status-ok);
+    stroke: var(--sev-ok);
   }
   .usage[data-severity='warn'] {
-    stroke: var(--color-status-warning);
+    stroke: var(--sev-warn);
   }
   .usage[data-severity='critical'] {
-    stroke: var(--color-status-critical);
+    stroke: var(--sev-critical);
   }
   .usage[data-severity='exhausted'] {
-    stroke: var(--color-status-error);
+    stroke: var(--sev-exhausted);
+  }
+  .ring-label {
+    fill: var(--color-text-faint);
+    stroke: none;
+    font-family: var(--font-mono);
+    font-size: 4px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
   }
 </style>

@@ -163,16 +163,20 @@ pub fn get_platform_capabilities(
     window: tauri::WebviewWindow,
 ) -> Result<PlatformCapabilities, IpcError> {
     authorize(&window, NativeCommand::GetPlatformCapabilities)?;
+    let fullscreen_detection = if cfg!(windows) {
+        CapabilityDiagnostic::Available
+    } else {
+        CapabilityDiagnostic::Unavailable {
+            reason: "fullscreen detection is unavailable on this build",
+        }
+    };
     Ok(PlatformCapabilities {
+        os: crate::window::platform_os(std::env::consts::OS),
         always_on_top: CapabilityDiagnostic::Unavailable {
             reason: "always-on-top support is unverified on this platform build",
         },
-        fullscreen_detection: CapabilityDiagnostic::Unavailable {
-            reason: "fullscreen detection is unavailable on this build",
-        },
-        autostart: CapabilityDiagnostic::Unavailable {
-            reason: "autostart integration is unavailable on this build",
-        },
+        fullscreen_detection,
+        autostart: CapabilityDiagnostic::Available,
     })
 }
 
@@ -195,10 +199,14 @@ pub fn save_position(
 #[tauri::command]
 pub fn update_settings(
     window: tauri::WebviewWindow,
+    app: AppHandle,
     repository: State<'_, SettingsRepository>,
     settings: Settings,
 ) -> Result<Settings, IpcError> {
     authorize(&window, NativeCommand::UpdateSettings)?;
+    let previous = repository
+        .load()
+        .map_err(|_| IpcError::PersistenceUnavailable)?;
     repository.save(&settings).map_err(|error| {
         if error.kind() == std::io::ErrorKind::InvalidData {
             IpcError::InvalidSettings
@@ -206,6 +214,22 @@ pub fn update_settings(
             IpcError::PersistenceUnavailable
         }
     })?;
+    if previous.start_at_login != settings.start_at_login {
+        use tauri_plugin_autostart::ManagerExt;
+
+        let manager = app.autolaunch();
+        let result = if settings.start_at_login {
+            manager.enable()
+        } else {
+            manager.disable()
+        };
+        if result.is_err() {
+            let _ = repository.save(&previous);
+            return Err(IpcError::ServiceUnavailable);
+        }
+    }
+    app.emit("settings-updated", &settings)
+        .map_err(|_| IpcError::ServiceUnavailable)?;
     Ok(settings)
 }
 
@@ -266,6 +290,31 @@ pub fn emit_provider_states(app: &AppHandle, service: &RefreshService) {
         tauri::async_runtime::spawn(async move {
             while states.changed().await.is_ok() {
                 let state: ProviderStateDto = states.borrow_and_update().clone().into();
+                #[cfg(debug_assertions)]
+                {
+                    let session = state.snapshot.as_ref().and_then(|snapshot| {
+                        snapshot
+                            .session
+                            .as_ref()
+                            .map(|window| (window.used_percent, window.window_minutes))
+                    });
+                    let weekly = state.snapshot.as_ref().and_then(|snapshot| {
+                        snapshot
+                            .weekly
+                            .as_ref()
+                            .map(|window| (window.used_percent, window.window_minutes))
+                    });
+                    eprintln!(
+                        "[CacheBite:{:?}] emit has_snapshot={} session={session:?} weekly={weekly:?} fail={:?} unavailable={:?} expired={} reset_pending={} rev={}",
+                        state.provider,
+                        state.snapshot.is_some(),
+                        state.failure_class,
+                        state.unavailable_reason,
+                        state.expired,
+                        state.reset_pending,
+                        state.revision,
+                    );
+                }
                 if app.emit(PROVIDER_STATE_EVENT, state).is_err() {
                     break;
                 }

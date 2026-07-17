@@ -1,4 +1,5 @@
 export const PET_STATES = [
+  'idle',
   'ok',
   'warn',
   'critical',

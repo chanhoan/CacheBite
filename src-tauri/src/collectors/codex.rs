@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 use time::OffsetDateTime;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 
 pub struct CodexCollector {
@@ -144,12 +144,18 @@ impl RpcSession {
         W: AsyncWrite + Unpin,
     {
         tokio::time::timeout(self.timeout, async {
-            write_request(writer, 1, "initialize").await?;
+            write_request(writer, 1, "initialize", initialize_params()).await?;
             let mut remaining = self.max_response_bytes;
             let initialized = read_matching_response(&mut reader, 1, &mut remaining).await?;
             validate_response(&initialized)?;
             write_notification(writer, "initialized").await?;
-            write_request(writer, 2, "account/rateLimits/read").await?;
+            write_request(
+                writer,
+                2,
+                "account/rateLimits/read",
+                Value::Object(Default::default()),
+            )
+            .await?;
             let response = read_matching_response(&mut reader, 2, &mut remaining).await?;
             validate_response(&response)?;
             let envelope: RateLimitEnvelope =
@@ -170,30 +176,189 @@ pub async fn collect_app_server(
     let mut command = Command::new(executable);
     command
         .args(["-s", "read-only", "-a", "untrusted"])
-        .arg("app-server")
+        .arg("app-server");
+    collect_app_server_child(command, now).await
+}
+
+pub async fn collect_app_server_child(
+    command: Command,
+    now: OffsetDateTime,
+) -> Result<ProviderUsageSnapshot, CollectorError> {
+    collect_app_server_child_with_options(command, now, Duration::from_secs(10), false).await
+}
+
+pub(crate) async fn collect_app_server_child_with_options(
+    command: Command,
+    now: OffsetDateTime,
+    timeout: Duration,
+    exit_127_is_cli_missing: bool,
+) -> Result<ProviderUsageSnapshot, CollectorError> {
+    let mut child = spawn_managed_app_server(command)?;
+    let mut stdin = child.stdin().ok_or(CollectorError::Internal)?;
+    let stdout = child.stdout().ok_or(CollectorError::Internal)?;
+    let result = RpcSession::new(timeout, MAX_RESPONSE_BYTES)
+        .exchange(stdout, &mut stdin)
+        .await;
+    drop(stdin);
+    let missing_cli = exit_127_is_cli_missing
+        && result.is_err()
+        && child.exit_code_with_grace().await == Some(127);
+    child.terminate().await;
+    if missing_cli {
+        return Err(CollectorError::CliMissing);
+    }
+    let limits = result?;
+    normalize(limits, now)
+}
+
+pub(crate) async fn collect_app_server_child_with_pgid<F, Fut>(
+    command: Command,
+    now: OffsetDateTime,
+    timeout: Duration,
+    cleanup: F,
+) -> Result<ProviderUsageSnapshot, CollectorError>
+where
+    F: FnOnce(u32) -> Fut,
+    Fut: std::future::Future<Output = Result<(), CollectorError>>,
+{
+    let mut child = spawn_managed_app_server(command)?;
+    let mut stdin = child.stdin().ok_or(CollectorError::Internal)?;
+    let stdout = child.stdout().ok_or(CollectorError::Internal)?;
+    let mut reader = BufReader::new(stdout);
+    let pgid = tokio::time::timeout(timeout, read_pgid_handshake(&mut reader))
+        .await
+        .map_err(|_| CollectorError::Timeout)
+        .and_then(|result| result)?;
+    let result = RpcSession::new(timeout, MAX_RESPONSE_BYTES)
+        .exchange(reader, &mut stdin)
+        .await;
+    drop(stdin);
+    let cleanup_result = cleanup(pgid).await;
+    child.terminate().await;
+    cleanup_result?;
+    let limits = result?;
+    normalize(limits, now)
+}
+
+fn configure_app_server_command(command: &mut Command) {
+    command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .kill_on_drop(true);
     #[cfg(unix)]
     command.process_group(0);
-    let child = command.spawn().map_err(|error| {
-        if error.kind() == std::io::ErrorKind::NotFound {
-            CollectorError::CliMissing
-        } else {
-            CollectorError::Internal
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.as_std_mut().creation_flags(CREATE_NO_WINDOW);
+    }
+}
+
+fn spawn_managed_app_server(mut command: Command) -> Result<ManagedChild, CollectorError> {
+    configure_app_server_command(&mut command);
+    command
+        .spawn()
+        .map(ManagedChild::new)
+        .map_err(|error| classify_spawn_error(error.kind()))
+}
+
+async fn read_pgid_handshake<R: AsyncRead + Unpin>(
+    reader: &mut BufReader<R>,
+) -> Result<u32, CollectorError> {
+    const PREFIX: &[u8] = b"CACHEBITE_PGID:";
+    // A login shell (`bash -lc`) may print profile output (MOTD, version
+    // managers, etc.) to stdout before the marker line. Skip leading noise lines
+    // until the marker appears, within a bounded byte budget. The marker is
+    // emitted before `exec codex`, so no JSON-RPC output is discarded here.
+    const MAX_SCAN_BYTES: usize = 64 * 1024;
+    const MAX_LINE_BYTES: usize = 128;
+    let mut scanned = 0usize;
+    let mut line = Vec::new();
+    loop {
+        let byte = match reader.read_u8().await {
+            Ok(byte) => byte,
+            Err(error) => {
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "[CacheBite:codex] handshake stream ended after {scanned} bytes: {error}"
+                );
+                return Err(CollectorError::Protocol);
+            }
+        };
+        scanned += 1;
+        if scanned > MAX_SCAN_BYTES {
+            return Err(CollectorError::Protocol);
         }
-    })?;
-    let mut child = ManagedChild::new(child);
-    let mut stdin = child.stdin().ok_or(CollectorError::Internal)?;
-    let stdout = child.stdout().ok_or(CollectorError::Internal)?;
-    let result = RpcSession::new(Duration::from_secs(10), MAX_RESPONSE_BYTES)
-        .exchange(stdout, &mut stdin)
-        .await;
-    drop(stdin);
-    child.terminate().await;
-    let limits = result?;
-    normalize(limits, now)
+        if byte == b'\n' {
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "[CacheBite:codex] handshake line ({} bytes): {}",
+                line.len(),
+                escape_bytes(&line)
+            );
+            // wsl.exe pipes stdout to Windows with CRLF line endings; drop a
+            // trailing carriage return so the numeric marker parses.
+            if line.last() == Some(&b'\r') {
+                line.pop();
+            }
+            if line.starts_with(PREFIX) {
+                return parse_pgid_handshake(&line);
+            }
+            line.clear();
+            continue;
+        }
+        // The marker is far shorter than MAX_LINE_BYTES; longer content cannot be
+        // the marker, so stop growing the buffer while still consuming the line.
+        if line.len() < MAX_LINE_BYTES {
+            line.push(byte);
+        }
+    }
+}
+
+/// Escapes non-printable bytes for diagnostic logging so the exact wire stream
+/// (CRLF, control chars, encoding surprises) is visible in debug builds.
+#[cfg(debug_assertions)]
+pub(crate) fn escape_bytes(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .take(200)
+        .map(|byte| match byte {
+            0x20..=0x7e => (*byte as char).to_string(),
+            _ => format!("\\x{byte:02x}"),
+        })
+        .collect()
+}
+
+pub(crate) fn parse_pgid_handshake(line: &[u8]) -> Result<u32, CollectorError> {
+    const PREFIX: &[u8] = b"CACHEBITE_PGID:";
+    const MAX_HANDSHAKE_BYTES: usize = 64;
+    // Defensively tolerate a trailing CR from CRLF line endings.
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    if line.len() > MAX_HANDSHAKE_BYTES {
+        return Err(CollectorError::Protocol);
+    }
+    let digits = line.strip_prefix(PREFIX).ok_or(CollectorError::Protocol)?;
+    if digits.is_empty() || !digits.iter().all(u8::is_ascii_digit) {
+        return Err(CollectorError::Protocol);
+    }
+    let digits = std::str::from_utf8(digits).map_err(|_| CollectorError::Protocol)?;
+    let pgid = digits
+        .parse::<u32>()
+        .map_err(|_| CollectorError::Protocol)?;
+    if pgid == 0 {
+        return Err(CollectorError::Protocol);
+    }
+    Ok(pgid)
+}
+
+pub(crate) fn classify_spawn_error(kind: std::io::ErrorKind) -> CollectorError {
+    if kind == std::io::ErrorKind::NotFound {
+        CollectorError::CliMissing
+    } else {
+        CollectorError::Internal
+    }
 }
 
 struct ManagedChild {
@@ -219,6 +384,18 @@ impl ManagedChild {
             let _ = child.kill().await;
             let _ = child.wait().await;
         }
+    }
+
+    async fn exit_code_with_grace(&mut self) -> Option<i32> {
+        let child = self.child.as_mut()?;
+        if let Some(status) = child.try_wait().ok().flatten() {
+            return status.code();
+        }
+        tokio::time::timeout(Duration::from_millis(100), child.wait())
+            .await
+            .ok()?
+            .ok()?
+            .code()
     }
 }
 
@@ -261,15 +438,37 @@ pub fn parse_rate_limits(
     normalize(limits.into_result(), now)
 }
 
+/// Windows at or above this duration are treated as the weekly limit. Codex
+/// reports a 5-hour session window near 300 minutes and a weekly window near
+/// 10080 minutes, so any threshold between the two separates them.
+const WEEKLY_WINDOW_THRESHOLD_MINS: u32 = 1440;
+
 fn normalize(
     limits: RateLimitResult,
     now: OffsetDateTime,
 ) -> Result<ProviderUsageSnapshot, CollectorError> {
-    let session = limits.primary.map(|wire| wire.normalize(300)).transpose()?;
-    let weekly = limits
-        .secondary
-        .map(|wire| wire.normalize(10_080))
-        .transpose()?;
+    // Codex does not guarantee that `primary` is the session window and
+    // `secondary` the weekly one. As of codex-cli 0.144.5 an account can report
+    // the weekly window in `primary` with `secondary` absent, so classify each
+    // window by its declared duration instead of trusting slot order.
+    let mut session = None;
+    let mut weekly = None;
+    for wire in [limits.primary, limits.secondary].into_iter().flatten() {
+        let is_weekly = wire
+            .window_minutes
+            .is_some_and(|minutes| minutes >= WEEKLY_WINDOW_THRESHOLD_MINS);
+        if is_weekly {
+            let normalized = wire.normalize(10_080)?;
+            if weekly.is_none() {
+                weekly = Some(normalized);
+            }
+        } else {
+            let normalized = wire.normalize(300)?;
+            if session.is_none() {
+                session = Some(normalized);
+            }
+        }
+    }
     if session.is_none() && weekly.is_none() {
         return Err(CollectorError::Parse);
     }
@@ -285,12 +484,25 @@ fn normalize(
     })
 }
 
+/// Parameters for the app-server `initialize` handshake. Codex rejects the
+/// request with JSON-RPC -32600 unless `clientInfo.name` and `clientInfo.version`
+/// are both present.
+fn initialize_params() -> Value {
+    serde_json::json!({
+        "clientInfo": {
+            "name": env!("CARGO_PKG_NAME"),
+            "version": env!("CARGO_PKG_VERSION"),
+        }
+    })
+}
+
 async fn write_request<W: AsyncWrite + Unpin>(
     writer: &mut W,
     id: u64,
     method: &str,
+    params: Value,
 ) -> Result<(), CollectorError> {
-    let request = serde_json::json!({"jsonrpc":"2.0", "id":id, "method":method, "params":{}});
+    let request = serde_json::json!({"jsonrpc":"2.0", "id":id, "method":method, "params":params});
     writer
         .write_all(request.to_string().as_bytes())
         .await
@@ -339,26 +551,47 @@ async fn read_response<R: AsyncRead + Unpin>(
     reader: &mut R,
     remaining: &mut usize,
 ) -> Result<RpcResponse, CollectorError> {
-    let mut bytes = Vec::with_capacity((*remaining).min(4096));
     loop {
-        let byte = reader
-            .read_u8()
-            .await
-            .map_err(|_| CollectorError::Protocol)?;
-        if byte == b'\n' {
-            break;
+        let mut bytes = Vec::with_capacity((*remaining).min(4096));
+        loop {
+            let byte = reader
+                .read_u8()
+                .await
+                .map_err(|_| CollectorError::Protocol)?;
+            if byte == b'\n' {
+                break;
+            }
+            if *remaining == 0 {
+                return Err(CollectorError::ResponseTooLarge);
+            }
+            *remaining -= 1;
+            bytes.push(byte);
         }
-        if *remaining == 0 {
-            return Err(CollectorError::ResponseTooLarge);
+        // Tolerate CRLF line endings from wsl.exe and skip blank separator lines.
+        if bytes.last() == Some(&b'\r') {
+            bytes.pop();
         }
-        *remaining -= 1;
-        bytes.push(byte);
+        if bytes.is_empty() {
+            continue;
+        }
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "[CacheBite:codex] rpc line ({} bytes): {}",
+            bytes.len(),
+            escape_bytes(&bytes)
+        );
+        return serde_json::from_slice(&bytes).map_err(|_| CollectorError::Protocol);
     }
-    serde_json::from_slice(&bytes).map_err(|_| CollectorError::Protocol)
 }
 
 fn validate_response(response: &RpcResponse) -> Result<(), CollectorError> {
-    if response.jsonrpc != "2.0" {
+    // Codex CLI 0.144.5 app-server omits this otherwise standard field in
+    // responses. Keep rejecting an explicitly incompatible version.
+    if response
+        .jsonrpc
+        .as_deref()
+        .is_some_and(|version| version != "2.0")
+    {
         return Err(CollectorError::Protocol);
     }
     if let Some(error) = &response.error {
@@ -377,7 +610,7 @@ fn validate_response(response: &RpcResponse) -> Result<(), CollectorError> {
 
 #[derive(Deserialize)]
 struct RpcResponse {
-    jsonrpc: String,
+    jsonrpc: Option<String>,
     id: Option<u64>,
     method: Option<String>,
     result: Option<Value>,

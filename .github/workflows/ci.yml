@@ -46,8 +46,8 @@ jobs:
       - run: pnpm licenses:check > production-licenses.json
       - name: Rust dependency advisory gate
         run: |
-          cargo install cargo-audit --version 0.21.2 --locked
-          cargo audit
+          cargo install cargo-audit --version 0.22.2 --locked
+          cargo audit --file src-tauri/Cargo.lock
       - name: Secret and production-endpoint guard
         run: |
           ! git grep -nEi '(sk-[a-z0-9_-]{16,}|bearer [a-z0-9._-]{16,})' -- ':!tests/fixtures/**' ':!docs/**'

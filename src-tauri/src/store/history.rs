@@ -111,46 +111,64 @@ impl HistoryRepository {
         snapshot: &ProviderUsageSnapshot,
         now: OffsetDateTime,
     ) -> io::Result<bool> {
-        if snapshot.is_cached {
-            return Ok(false);
+        Ok(self.append_success_batch(std::slice::from_ref(snapshot), now)? > 0)
+    }
+
+    pub fn append_success_batch(
+        &self,
+        snapshots: &[ProviderUsageSnapshot],
+        now: OffsetDateTime,
+    ) -> io::Result<usize> {
+        if snapshots.is_empty() {
+            return Ok(0);
         }
         let _guard = self
             .lock
             .lock()
             .map_err(|_| io::Error::other("history lock poisoned"))?;
         let mut store = self.load_locked(now)?;
-        let provider = match snapshot.provider {
-            Provider::Claude => &mut store.claude,
-            Provider::Codex => &mut store.codex,
-        };
-        if provider
-            .samples
-            .last()
-            .is_some_and(|sample| snapshot.captured_at <= sample.captured_at)
-        {
-            return Ok(false);
+        let mut appended = 0;
+        for snapshot in snapshots {
+            if snapshot.is_cached {
+                continue;
+            }
+            let provider = match snapshot.provider {
+                Provider::Claude => &mut store.claude,
+                Provider::Codex => &mut store.codex,
+            };
+            if provider
+                .samples
+                .last()
+                .is_some_and(|sample| snapshot.captured_at <= sample.captured_at)
+            {
+                continue;
+            }
+            let previous = provider.samples.last();
+            let sample = HistorySample {
+                captured_at: snapshot.captured_at,
+                session: point(
+                    snapshot.session.as_ref(),
+                    previous.and_then(|sample| sample.session.as_ref()),
+                    snapshot.captured_at,
+                ),
+                weekly: point(
+                    snapshot.weekly.as_ref(),
+                    previous.and_then(|sample| sample.weekly.as_ref()),
+                    snapshot.captured_at,
+                ),
+            };
+            if sample.session.is_none() && sample.weekly.is_none() {
+                continue;
+            }
+            provider.samples.push(sample);
+            appended += 1;
         }
-        let previous = provider.samples.last();
-        let sample = HistorySample {
-            captured_at: snapshot.captured_at,
-            session: point(
-                snapshot.session.as_ref(),
-                previous.and_then(|sample| sample.session.as_ref()),
-                snapshot.captured_at,
-            ),
-            weekly: point(
-                snapshot.weekly.as_ref(),
-                previous.and_then(|sample| sample.weekly.as_ref()),
-                snapshot.captured_at,
-            ),
-        };
-        if sample.session.is_none() && sample.weekly.is_none() {
-            return Ok(false);
+        if appended > 0 {
+            prune(&mut store.claude, now);
+            prune(&mut store.codex, now);
+            write_json_atomically(&self.path, &store)?;
         }
-        provider.samples.push(sample);
-        prune(provider, now);
-        write_json_atomically(&self.path, &store)?;
-        Ok(true)
+        Ok(appended)
     }
 
     fn load_locked(&self, now: OffsetDateTime) -> io::Result<HistoryStore> {

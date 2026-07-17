@@ -43,7 +43,7 @@
   }
   .badge-position {
     position: absolute;
-    right: 3%;
-    bottom: 6%;
+    right: 2%;
+    bottom: 2%;
   }
 </style>

@@ -1,13 +1,15 @@
 pub mod broker;
 pub mod claude;
 pub mod codex;
+pub mod fallback;
+pub mod wsl;
 
 use crate::domain::{CollectionOutcome, FailureClass, Provider};
 use std::{future::Future, pin::Pin};
 
 pub const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 
-#[derive(Debug, thiserror::Error, Eq, PartialEq)]
+#[derive(Clone, Debug, thiserror::Error, Eq, PartialEq)]
 pub enum CollectorError {
     #[error("credentials are missing")]
     CredentialsMissing,

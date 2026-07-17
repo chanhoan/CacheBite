@@ -31,9 +31,10 @@ pnpm dev                 # renderer only
 pnpm tauri dev           # desktop application
 pnpm test:ci             # check, lint, coverage, renderer build
 cargo test --manifest-path src-tauri/Cargo.toml --all-features
+python3 scripts/build-pet-packages.py # rebuild bundled cat/corgi packages from docs/UI-plan assets
 ```
 
-CacheBite requires a user-supplied pet package with a valid `idle` state in the application-data pet directory. Prototype artwork under `docs/UI-plan/` is not bundled into releases.
+CacheBite bundles generated cat and corgi packages with a valid `idle` state and installs them into the application-data pet directory on first launch. Additional user-supplied packages can follow the same manifest contract; source artwork under `docs/UI-plan/` is only used by the package build script.
 
 ## Provider collection and privacy
 
