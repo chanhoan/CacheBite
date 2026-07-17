@@ -30,6 +30,8 @@ use std::{
 };
 use time::OffsetDateTime;
 
+static TEMP_DIR_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
+
 #[derive(Clone)]
 struct FakeWslProcess {
     expected_args: Vec<String>,
@@ -585,13 +587,20 @@ impl Drop for TempDir {
 }
 
 fn tempdir() -> TempDir {
-    let path = std::env::temp_dir().join(format!(
-        "cachebite-test-{}-{}",
-        std::process::id(),
-        time::OffsetDateTime::now_utc().unix_timestamp_nanos()
-    ));
-    fs::create_dir(&path).unwrap();
-    TempDir(fs::canonicalize(path).unwrap())
+    for _ in 0..100 {
+        let sequence = TEMP_DIR_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "cachebite-test-{}-{}-{sequence}",
+            std::process::id(),
+            time::OffsetDateTime::now_utc().unix_timestamp_nanos()
+        ));
+        match fs::create_dir(&path) {
+            Ok(()) => return TempDir(fs::canonicalize(path).unwrap()),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => panic!("failed to create temporary test directory: {error}"),
+        }
+    }
+    panic!("failed to allocate a unique temporary test directory");
 }
 
 #[test]

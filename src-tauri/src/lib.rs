@@ -31,8 +31,10 @@ pub fn run() {
                     "[CacheBite:native] setup:start v{}",
                     env!("CARGO_PKG_VERSION")
                 );
-                if let Some(overlay) = app.get_webview_window("overlay") {
-                    overlay.open_devtools();
+                if std::env::var_os("CACHEBITE_OPEN_DEVTOOLS").is_some() {
+                    if let Some(overlay) = app.get_webview_window("overlay") {
+                        overlay.open_devtools();
+                    }
                 }
             }
             let app_data = app.path().app_data_dir()?;

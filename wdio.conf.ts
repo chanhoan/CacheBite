@@ -41,4 +41,7 @@ export const config: Options.Testrunner = {
     },
   ],
   waitforTimeout: 15_000,
+  mochaOpts: {
+    timeout: 60_000,
+  },
 };

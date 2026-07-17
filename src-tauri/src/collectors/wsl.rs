@@ -256,6 +256,7 @@ impl WslCredentialSource {
     }
 }
 
+#[cfg(any(windows, test))]
 pub(crate) fn validate_system_wsl_path(system_directory: &Path) -> Result<PathBuf, CollectorError> {
     if !system_directory.is_absolute() {
         return Err(CollectorError::CredentialsMissing);
@@ -282,7 +283,7 @@ fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
         != 0
 }
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), test))]
 fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
     metadata.file_type().is_symlink()
 }

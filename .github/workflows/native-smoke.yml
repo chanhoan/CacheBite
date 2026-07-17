@@ -98,7 +98,7 @@ jobs:
       - run: pnpm tauri build --debug --no-bundle
       - name: Production-composition native smoke
         env:
-          HOME: /tmp/cachebite-production-home
+          XDG_DATA_HOME: /tmp/cachebite-production-home
         run: |
-          mkdir -p "$HOME"
+          mkdir -p "$XDG_DATA_HOME"
           xvfb-run -a pnpm test:e2e
