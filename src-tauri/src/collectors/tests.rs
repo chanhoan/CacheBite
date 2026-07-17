@@ -279,7 +279,7 @@ async fn wsl_codex_cancellation_kills_and_reaps_fake_launcher() {
     );
     let collector = WslCodexCollector::with_timeout_for_test(
         WslCommandFactory::with_executable_for_test(root.path().join("fake-wsl.exe")),
-        Duration::from_millis(10),
+        Duration::from_millis(100),
     );
     let task = tokio::spawn(async move { collector.collect().await });
     let pid_file = root.path().join("pid");

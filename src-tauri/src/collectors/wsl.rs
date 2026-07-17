@@ -5,14 +5,11 @@ use super::{
 };
 use crate::domain::{CollectionOutcome, Provider};
 use secrecy::SecretString;
+#[cfg(any(windows, test))]
+use std::path::Path;
 #[cfg(windows)]
 use std::time::Duration;
-use std::{
-    future::Future,
-    path::{Path, PathBuf},
-    pin::Pin,
-    sync::Arc,
-};
+use std::{future::Future, path::PathBuf, pin::Pin, sync::Arc};
 use zeroize::Zeroize;
 
 pub const CLAUDE_CREDENTIAL_SCRIPT: &str = "if [ -n \"${CLAUDE_CONFIG_DIR:-}\" ] && [ -f \"${CLAUDE_CONFIG_DIR}/.credentials.json\" ]; then cat -- \"${CLAUDE_CONFIG_DIR}/.credentials.json\"; elif [ -f \"${HOME}/.claude/.credentials.json\" ]; then cat -- \"${HOME}/.claude/.credentials.json\"; else exit 44; fi";
