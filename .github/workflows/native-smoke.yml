@@ -12,10 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The official tauri-driver used by this smoke suite supports Windows
-        # and Linux. macOS needs the embedded provider (and its test-only
-        # plugin) or a CrabNebula credential, neither of which this app uses.
-        os: [windows-latest]
+        os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     env:
@@ -31,7 +28,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@46511b1c83438f0dd37c02d843619ece5a4abb5b # 1.97.1
       - run: pnpm install --frozen-lockfile
       - run: cargo test --manifest-path src-tauri/Cargo.toml --all-features
-      - run: pnpm tauri build --debug --no-bundle
+      - name: Build native smoke binary
+        run: pnpm tauri build --debug --no-bundle ${{ matrix.os == 'macos-latest' && '--features webdriver' || '' }}
       - run: pnpm test:e2e
 
   linux-display-fixture:

@@ -435,10 +435,10 @@ pub(crate) fn retry_pending_history(
         .append_success_batch(&batch, OffsetDateTime::now_utc())
         .is_err()
     {
-            (persistence.diagnostic)(PersistenceDiagnostic {
-                provider,
-                category: PersistenceCategory::History,
-            });
+        (persistence.diagnostic)(PersistenceDiagnostic {
+            provider,
+            category: PersistenceCategory::History,
+        });
         return;
     }
     for _ in 0..batch.len() {

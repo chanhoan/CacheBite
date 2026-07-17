@@ -16,6 +16,7 @@ const application =
     'debug',
     `cachebite${process.platform === 'win32' ? '.exe' : ''}`,
   );
+const driverProvider = process.platform === 'darwin' ? 'embedded' : 'official';
 
 export const config: Options.Testrunner = {
   runner: 'local',
@@ -28,7 +29,7 @@ export const config: Options.Testrunner = {
       'tauri',
       {
         application,
-        driverProvider: 'official',
+        driverProvider,
         autoInstallTauriDriver: true,
       },
     ],

@@ -14,12 +14,16 @@ pub fn run() {
     use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
     use tauri::Manager;
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
-        ))
+        ));
+    #[cfg(feature = "webdriver")]
+    let builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
+
+    builder
         .setup(|app| {
             #[cfg(debug_assertions)]
             {
