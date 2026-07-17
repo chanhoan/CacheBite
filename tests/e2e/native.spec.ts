@@ -8,16 +8,27 @@ if (expectedMode !== 'fixture' && expectedMode !== 'production') {
 
 describe(`CacheBite native ${expectedMode} composition smoke`, () => {
   const switchToCacheBiteWindow = async (label: 'overlay' | 'panel') => {
-    for (const handle of await browser.getWindowHandles()) {
-      await browser.switchToWindow(handle);
-      const main = $('main[aria-label="CacheBite"]');
-      if (
-        (await main.isExisting()) &&
-        (await main.getAttribute('data-window-label')) === label
-      )
-        return;
-    }
-    throw new Error(`CacheBite ${label} window was not found`);
+    await browser.waitUntil(
+      async () => {
+        const handles = await browser.getWindowHandles();
+        const labeledHandle = handles.find((handle) => handle === label);
+        const candidates = labeledHandle
+          ? [labeledHandle, ...handles.filter((handle) => handle !== label)]
+          : handles;
+
+        for (const handle of candidates) {
+          await browser.switchToWindow(handle);
+          const main = $('main[aria-label="CacheBite"]');
+          if (
+            (await main.isExisting()) &&
+            (await main.getAttribute('data-window-label')) === label
+          )
+            return true;
+        }
+        return false;
+      },
+      { timeoutMsg: `CacheBite ${label} window was not found` },
+    );
   };
 
   beforeEach(async () => {

@@ -167,6 +167,15 @@ describe('native platform capability contract', () => {
 });
 
 describe('native production-composition spec', () => {
+  it('retries labeled embedded-window discovery until its DOM is loaded', () => {
+    expect(nativeSpec).toMatch(
+      /browser\.waitUntil\(\s*async \(\) => \{[\s\S]*await browser\.getWindowHandles\(\)/,
+    );
+    expect(nativeSpec).toMatch(
+      /handles\.find\(\(handle\) => handle === label\)/,
+    );
+  });
+
   it('returns to the overlay before opening the panel for provider assertions', () => {
     const productionCase =
       nativeSpec.split(
