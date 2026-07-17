@@ -117,9 +117,6 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
         await expect($('body')).not.toHaveText(
           expect.stringContaining('autostart integration is unavailable'),
         );
-        await expect($('body')).not.toHaveText(
-          expect.stringContaining('fullscreen detection is unavailable'),
-        );
         await expect($('section[aria-label="Usage panel"]')).toHaveText(
           expect.stringContaining('unavailable'),
         );

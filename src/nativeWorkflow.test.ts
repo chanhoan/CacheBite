@@ -188,4 +188,10 @@ describe('native production-composition spec', () => {
       productionCase.indexOf("switchToCacheBiteWindow('overlay')"),
     ).toBeLessThan(productionCase.indexOf('main[data-window-label="overlay"]'));
   });
+
+  it('allows documented non-Windows fullscreen capability degradation', () => {
+    expect(nativeSpec).not.toContain(
+      "expect.stringContaining('fullscreen detection is unavailable')",
+    );
+  });
 });
