@@ -591,7 +591,7 @@ fn tempdir() -> TempDir {
         time::OffsetDateTime::now_utc().unix_timestamp_nanos()
     ));
     fs::create_dir(&path).unwrap();
-    TempDir(path)
+    TempDir(fs::canonicalize(path).unwrap())
 }
 
 #[test]
