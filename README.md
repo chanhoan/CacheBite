@@ -1,87 +1,70 @@
 # CacheBite
 
-CacheBite is a cross-platform floating desktop pet that shows Claude and Codex subscription usage without sending account credentials through a CacheBite server.
+CacheBite is a local Tauri 2 desktop pet that presents Claude and Codex subscription usage without sending credentials through a CacheBite server. The renderer is Svelte/TypeScript; credential access, provider collection, refresh state, persistence, and platform policy live in Rust.
 
-The pet stays above normal application windows, plays an idle animation at a user-selected position, and hides while a full-screen application is active. It reports provider-calculated five-hour and weekly utilization with reset times.
+## Current status
 
-## Status
+The repository now contains the MVP application code and automated release definitions. The renderer build and isolated native-core tests pass locally; a full Tauri build still requires the platform prerequisites listed below. The implementation includes normalized provider state, read-only credential handling, Claude OAuth usage collection, Codex app-server RPC collection, independent refresh actors, an idle pet overlay, split usage ring, settings/snapshot persistence, pointer and display geometry policies, and fixture-only test modes.
 
-CacheBite is currently in the architecture stage. Application scaffolding and distributable packages have not been created yet.
+The release workflow is configured to produce these native validation artifacts when its platform jobs pass:
 
-## Goals
-
-- Support Windows, macOS, and Linux from one codebase.
-- Display Claude and Codex five-hour and weekly usage.
-- Keep provider credentials inside the native application process.
-- Run as a transparent, frameless, always-on-top desktop pet.
-- Let users drag the pet and restore its last valid position.
-- Degrade clearly when an operating system or provider does not expose a capability.
-
-## Architecture
-
-CacheBite uses Tauri 2 with a Svelte and TypeScript renderer plus a Rust local backend.
-
-```text
-Svelte pet UI
-      |
-      | Tauri IPC
-      v
-Rust local backend
-  |-- Claude usage collector
-  |-- Codex usage collector
-  |-- credential broker
-  |-- snapshot and settings store
-  `-- platform window adapter
-      |
-      v
-Anthropic / OpenAI
-```
-
-There is no CacheBite cloud backend in the initial release. The Rust backend runs locally inside the desktop application and contacts provider services directly.
-
-See [the architecture document](docs/architecture.md) for provider contracts, security boundaries, platform behavior, packaging, and testing strategy.
-
-## Usage collection
-
-- Claude: use the Claude Code OAuth usage contract, with the CLI `/usage` panel as a guarded fallback.
-- Codex: prefer the Codex app-server `account/rateLimits/read` RPC, with provider backend and CLI status fallbacks.
-- Normalize both providers into five-hour and weekly percentage windows.
-- Cache the last successful snapshot and mark old data as stale.
-
-CacheBite treats provider-calculated utilization as authoritative. It does not estimate subscription quota by summing local input and output tokens.
-
-## Security
-
-- Provider access tokens never enter the Svelte renderer.
-- Credentials, prompts, source code, and session contents are not uploaded to CacheBite infrastructure.
-- Browser cookies are not read.
-- Claude and Codex credential files remain read-only.
-- Authorization headers, account identifiers, home paths, and response bodies are excluded from logs.
-
-The subscription usage endpoints are internal CLI contracts and may change. Provider integrations remain isolated so they can be updated independently from the rest of the application.
-
-## Planned repository layout
-
-```text
-CacheBite/
-  src/                  Svelte UI
-  src-tauri/            Rust local backend and platform integration
-  pets/                 bundled pet packages
-  docs/                 product and engineering documentation
-  tests/                cross-layer and packaging tests
-  .github/workflows/    native builds for all supported operating systems
-```
-
-The UI and local backend remain in one repository because they are built, tested, versioned, and released as one desktop application.
-
-## Packaging targets
-
-| Platform | Planned package |
+| Platform | Artifact |
 | --- | --- |
-| Windows | MSI and NSIS installer |
-| macOS | Signed and notarized DMG |
-| Linux | AppImage, followed by DEB |
+| Windows | MSI and NSIS |
+| macOS | unsigned/ad-hoc validation DMG; protected signed/notarized DMG on explicit approval |
+| Linux | AppImage |
+
+Public macOS distribution remains blocked until the protected signing environment is configured and the notarization job passes.
+
+## Development setup
+
+Requirements:
+
+- Node.js 22 and pnpm 10.15.1
+- the Rust toolchain pinned in `rust-toolchain.toml`
+- Tauri 2 native prerequisites for your operating system
+- Linux: WebKitGTK 4.1, AppIndicator, librsvg, and `patchelf`
+
+```bash
+pnpm install --frozen-lockfile
+pnpm dev                 # renderer only
+pnpm tauri dev           # desktop application
+pnpm test:ci             # check, lint, coverage, renderer build
+cargo test --manifest-path src-tauri/Cargo.toml --all-features
+```
+
+CacheBite requires a user-supplied pet package with a valid `idle` state in the application-data pet directory. Prototype artwork under `docs/UI-plan/` is not bundled into releases.
+
+## Provider collection and privacy
+
+MVP collection uses only these primary paths:
+
+- Claude: the fixed HTTPS Claude Code OAuth usage endpoint, using read-only credentials selected by the native credential broker.
+- Codex: `codex -s read-only -a untrusted app-server`, followed by the JSON-RPC initialize handshake and `account/rateLimits/read`.
+
+The deferred Claude PTY and Codex direct-backend/status fallbacks are not present in the MVP. CacheBite does not read browser cookies, rewrite credential files, estimate quota from token counts, or expose provider tokens to the renderer. Logs and renderer DTOs exclude authorization values, raw provider bodies, account identifiers, and credential paths.
+
+Fixture tests set `CACHEBITE_E2E_FIXTURES=1`, which replaces both collectors with deterministic unavailable fixtures. The separate production-composition smoke starts the real collector composition with credentials absent and Codex pointed at a nonexistent absolute path; it does not request a manual refresh.
+
+## Platform behavior and limits
+
+- Saved logical positions are DPI-converted and clamped to the nearest remaining display, including displays with negative coordinates.
+- Position listener cleanup starts a best-effort final native save synchronously; an immediate process termination can still lose the last pending move because cleanup cannot await IPC completion.
+- A release below 4 px toggles the panel; movement at or above 4 px is a drag.
+- Fullscreen detection is currently reported unavailable; the tested policy reducer can hide presentation windows without stopping refresh once a platform adapter is connected.
+- Panel anchoring flips and clamps inside the selected display.
+- X11 and Wayland smoke jobs are defined separately. Unverified platform capabilities are reported as unavailable rather than treated as provider failure.
+- Internal provider contracts may drift; parsers are isolated, size/time bounded, and fail with typed provider-scoped outcomes.
+
+## Validation and releases
+
+- `ci.yml`: frontend checks, ≥80% configured coverage gates, renderer E2E, Rust format/clippy/tests, dependency audit, license inventory, and secret/renderer-endpoint guards.
+- `native-smoke.yml`: Windows, macOS, Linux X11, and headless Wayland fixture native jobs, plus a credential-free Linux production-composition smoke.
+- `release.yml`: MSI, NSIS, validation DMG, AppImage, and SHA-256 artifacts. Signed/notarized macOS builds require manual opt-in plus the protected `production-macos-signing` environment.
+- Dependabot tracks GitHub Actions, npm, and Cargo updates. Every GitHub Action is pinned to a reviewed full commit SHA with its human-readable release or selector retained in a comment.
+
+See [docs/architecture.md](docs/architecture.md) and [docs/ui-contract.md](docs/ui-contract.md) for the authoritative architecture and presentation contracts.
 
 ## License
 
-No project license has been selected yet. Until a license is added, all rights are reserved.
+No project license has been selected. Until one is added, all rights are reserved.

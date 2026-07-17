@@ -1,0 +1,7 @@
+coverage
+dist
+docs
+README.md
+pnpm-lock.yaml
+src-tauri/target
+.claude

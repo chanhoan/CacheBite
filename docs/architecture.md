@@ -120,7 +120,9 @@ The collector reads credentials through a credential broker:
 
 The response's `five_hour` and `seven_day` windows are mapped to the normalized model. The parser accepts known field variants defensively and rejects malformed percentages or reset timestamps.
 
-If the OAuth request cannot be used, an optional fallback launches Claude in a hidden pseudo-terminal, invokes `/usage`, and parses only the usage panel. It never stores conversation output. The fallback has a strict timeout and cannot trigger an interactive login flow in the background.
+No Claude CLI fallback is enabled. A future fallback requires a pinned, realistically
+tested noninteractive protocol and process-tree cleanup before it may be compiled or
+selected at runtime.
 
 ## Codex collection
 
@@ -145,7 +147,8 @@ User-Agent: codex-cli
 originator: Codex Desktop
 ```
 
-The credential broker reads the selected `CODEX_HOME/auth.json` without modifying it. A final optional fallback launches a hidden Codex status command and parses only rate-limit output.
+The credential broker reads the selected `CODEX_HOME/auth.json` without modifying it.
+No Codex status fallback is enabled; app-server remains the sole Codex collection path.
 
 ## Credential and network security
 
@@ -172,6 +175,21 @@ Direct provider endpoints are internal CLI contracts rather than stable public s
 - Drop expired data after the stale window instead of presenting it as current.
 - Preserve independent state for Claude and Codex so one provider's failure does not hide the other.
 - Treat missing CLI installation or sign-in as unavailable, not as an application error.
+
+### v1.1 bounded usage history
+
+Usage history is a versioned, local engineering cache rather than a claim about a
+provider's billing contract. It records successful, fresh samples only. A sample is
+appended only when its UTC `captured_at` is materially newer than the latest stored
+sample; duplicate and out-of-order timestamps are ignored. Claude and Codex are
+independent, and the 5-hour and weekly windows within a provider are independent.
+
+The nominal collection cadence is 15 minutes. Each provider retains at most 30 days
+and 3,000 samples. Retention and the cap are enforced on every append and migration.
+Provider reset timestamps define discontinuities: a changed or crossed reset creates
+a graph gap, and CacheBite never estimates or interpolates between samples. The
+history schema is versioned; older supported shapes are migrated and rewritten,
+while invalid or unsupported data follows the normal corrupt-store quarantine path.
 
 ## Window behavior
 

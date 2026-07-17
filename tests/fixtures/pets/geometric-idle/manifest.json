@@ -1,0 +1,12 @@
+{
+  "id": "geometric-idle",
+  "displayName": "Geometric Idle",
+  "defaultSize": { "width": 128, "height": 128 },
+  "animations": {
+    "idle": {
+      "type": "frames",
+      "frames": ["frames/idle-01.svg", "frames/idle-02.svg"],
+      "frameDurationMs": 240
+    }
+  }
+}
