@@ -329,13 +329,13 @@ async fn wsl_codex_reports_missing_when_both_fixed_shell_modes_fail_without_laun
     assert_eq!(calls.len(), 2);
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[derive(Clone)]
 struct ExecutableWslProcess {
     executable: PathBuf,
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 impl super::wsl::WslProcess for ExecutableWslProcess {
     fn run<'a>(
         &'a self,
@@ -355,7 +355,7 @@ impl super::wsl::WslProcess for ExecutableWslProcess {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[tokio::test]
 async fn wsl_codex_interactive_nvm_launch_handles_partial_startup_output_and_cleanup() {
     use std::os::unix::fs::PermissionsExt;
