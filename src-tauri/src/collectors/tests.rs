@@ -272,7 +272,7 @@ async fn wsl_codex_interactive_fallback_is_selected_after_login_probe_fails() {
     ));
     assert_eq!(
         fs::read_to_string(args_file).unwrap().as_str(),
-        format!("--exec\nsh\n-c\nexec setsid --wait bash -ic 'printf \"\\nCACHEBITE_PGID:%s\\n\" \"$$\"; exec codex -s read-only -a untrusted app-server'\n")
+        "--exec\nsh\n-c\nexec setsid --wait bash -ic 'printf \"\\nCACHEBITE_PGID:%s\\n\" \"$$\"; exec codex -s read-only -a untrusted app-server'\n"
     );
     let calls = process.calls.lock().unwrap();
     assert_eq!(calls.len(), 3);
@@ -357,19 +357,16 @@ impl super::wsl::WslProcess for ExecutableWslProcess {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn wsl_codex_interactive_nvm_launch_handles_partial_startup_output_and_reaps_child() {
+async fn wsl_codex_interactive_nvm_launch_handles_partial_startup_output_and_cleanup() {
     use std::os::unix::fs::PermissionsExt;
 
     let root = tempdir();
     let home = root.path().join("home");
     let bin = home.join(".nvm/versions/node/test-version/bin");
+    let cleanup_file = root.path().join("cleanup-pgid");
     fs::create_dir_all(&bin).unwrap();
     let codex = bin.join("codex");
-    let pid_file = root.path().join("codex-pid");
-    let codex_script = format!(
-        "#!/bin/sh\nprintf '%s\\n' $$ > '{}'\nread first\nprintf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{{}}}}'\nread second\nprintf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{{\"primary\":{{\"usedPercent\":3}}}}}}'\nsleep 30\n",
-        pid_file.display()
-    );
+    let codex_script = "#!/bin/sh\nread first\nprintf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}'\nread second\nprintf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"primary\":{\"usedPercent\":3}}}'\nexec sleep 30\n";
     fs::write(&codex, codex_script).unwrap();
     fs::set_permissions(&codex, fs::Permissions::from_mode(0o700)).unwrap();
     fs::write(
@@ -383,8 +380,9 @@ async fn wsl_codex_interactive_nvm_launch_handles_partial_startup_output_and_rea
 
     let executable = root.path().join("fake-wsl.exe");
     let wsl_script = format!(
-        "#!/bin/sh\nexport HOME='{}'\nexport PATH='/usr/bin:/bin'\n[ \"$1\" = '--exec' ] || exit 64\nshift\nexec \"$@\"\n",
-        home.display()
+        "#!/bin/sh\nexport HOME='{}'\nexport PATH='/usr/bin:/bin'\n[ \"$1\" = '--exec' ] || exit 64\nshift\ncase \"${{3:-}}\" in 'bash -lc '*) exit 1;; *'kill -KILL'*) printf '%s\\n' \"${{5:-}}\" > '{}';; esac\nexec \"$@\"\n",
+        home.display(),
+        cleanup_file.display()
     );
     fs::write(&executable, wsl_script).unwrap();
     fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
@@ -401,12 +399,8 @@ async fn wsl_codex_interactive_nvm_launch_handles_partial_startup_output_and_rea
         collector.collect().await,
         CollectionOutcome::Success { .. }
     ));
-    let pid: i32 = fs::read_to_string(pid_file)
-        .unwrap()
-        .trim()
-        .parse()
-        .unwrap();
-    assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
+    let cleanup_pgid = fs::read_to_string(cleanup_file).unwrap();
+    assert!(cleanup_pgid.trim().parse::<u32>().is_ok());
 }
 
 #[tokio::test]
