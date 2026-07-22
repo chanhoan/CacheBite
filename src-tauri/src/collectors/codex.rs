@@ -294,9 +294,8 @@ async fn read_pgid_handshake<R: AsyncRead + Unpin>(
         if byte == b'\n' {
             #[cfg(debug_assertions)]
             eprintln!(
-                "[CacheBite:codex] handshake line ({} bytes): {}",
-                line.len(),
-                escape_bytes(&line)
+                "[CacheBite:codex] handshake line received ({} bytes)",
+                line.len()
             );
             // wsl.exe pipes stdout to Windows with CRLF line endings; drop a
             // trailing carriage return so the numeric marker parses.
@@ -315,20 +314,6 @@ async fn read_pgid_handshake<R: AsyncRead + Unpin>(
             line.push(byte);
         }
     }
-}
-
-/// Escapes non-printable bytes for diagnostic logging so the exact wire stream
-/// (CRLF, control chars, encoding surprises) is visible in debug builds.
-#[cfg(debug_assertions)]
-pub(crate) fn escape_bytes(bytes: &[u8]) -> String {
-    bytes
-        .iter()
-        .take(200)
-        .map(|byte| match byte {
-            0x20..=0x7e => (*byte as char).to_string(),
-            _ => format!("\\x{byte:02x}"),
-        })
-        .collect()
 }
 
 pub(crate) fn parse_pgid_handshake(line: &[u8]) -> Result<u32, CollectorError> {
@@ -576,9 +561,8 @@ async fn read_response<R: AsyncRead + Unpin>(
         }
         #[cfg(debug_assertions)]
         eprintln!(
-            "[CacheBite:codex] rpc line ({} bytes): {}",
-            bytes.len(),
-            escape_bytes(&bytes)
+            "[CacheBite:codex] rpc line received ({} bytes)",
+            bytes.len()
         );
         return serde_json::from_slice(&bytes).map_err(|_| CollectorError::Protocol);
     }

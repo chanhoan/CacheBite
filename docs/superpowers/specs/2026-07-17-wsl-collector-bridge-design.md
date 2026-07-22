@@ -34,7 +34,10 @@ The adapter:
 - maps missing WSL and missing tools separately from network failures;
 - emits only redacted diagnostic metadata such as provider, source, phase, and error class.
 
-`wsl.exe --exec` is used directly for Codex. Claude credential discovery requires a fixed, repository-owned POSIX script passed to `sh -c`; the script accepts no positional parameters or interpolated data.
+Codex discovery and launch use fixed, repository-owned shell wrappers passed to
+`wsl.exe --exec sh -c`. The wrappers accept no positional parameters or
+interpolated data. Claude credential discovery uses the same fixed-script
+boundary.
 
 ## Claude Data Flow
 
@@ -56,15 +59,31 @@ Outcomes are mapped as follows:
 
 ## Codex Data Flow
 
-When native Codex resolution reports that the CLI is missing, the WSL collector launches:
+When native Codex resolution reports that the CLI is missing, the WSL collector
+probes the default distribution in this order:
 
 ```text
-wsl.exe --exec codex -s read-only -a untrusted app-server
+bash -lc 'type -P codex >/dev/null 2>&1'
+bash -ic 'type -P codex >/dev/null 2>&1'  # fallback only
 ```
 
-The existing JSON-RPC session implementation is reused against the child's stdin and stdout. It performs initialization and `account/rateLimits/read`, preserves the existing response-size and ten-second protocol timeout limits, and normalizes the result through the existing Codex parser.
+The login shell remains first so installations exposed through `.profile` keep
+their current behavior. The interactive fallback discovers NVM and other tools
+configured only by `.bashrc`. CacheBite launches Codex with the same fixed shell
+mode that passed its probe; users do not need to copy a versioned NVM path into
+another profile file.
 
-Before selection, a bounded probe uses `wsl.exe --exec sh -c 'command -v codex >/dev/null 2>&1'`. The script is a fixed literal and receives no user data. A missing command maps to `CliMissing` (`not_installed`), not offline. Protocol and provider failures retain their current classifications.
+The existing JSON-RPC session implementation is reused against the child's
+stdin and stdout. It performs initialization and `account/rateLimits/read`,
+preserves the existing response-size and ten-second protocol timeout limits,
+and normalizes the result through the existing Codex parser. Shell startup
+output is treated as untrusted and skipped only within the bounded pre-handshake
+scan before the fixed process-group marker.
+
+Both probes and launch wrappers are fixed literals and receive no user data.
+Only when both probes fail does discovery map to `CliMissing` (`not_installed`),
+not offline. Protocol and provider failures retain their current
+classifications.
 
 Killing `wsl.exe` alone does not always prove that a Linux descendant exited. The adapter therefore launches Codex through a fixed WSL process wrapper that records the Linux process group and terminates that group on timeout or cancellation before reaping the Windows child. Tests must demonstrate that a deliberately hanging fake app-server is not left running.
 
@@ -115,7 +134,7 @@ Required unit coverage:
 - Codex JSON-RPC works over the WSL child transport;
 - hanging children and descendants are terminated and reaped.
 
-Windows integration coverage uses a fake `wsl.exe` fixture to simulate the default distribution, Claude credential output, and Codex app-server protocol. A manual smoke test on a Windows host with tools installed only in the default WSL distribution verifies both providers become active and that no console window remains open.
+Windows integration coverage uses a fake `wsl.exe` fixture to simulate the default distribution, Claude credential output, and Codex app-server protocol. A manual smoke test on a Windows host with Codex installed only through an interactive NVM PATH verifies that Codex becomes active without profile edits and that no console window or orphaned app-server remains.
 
 ## Acceptance Criteria
 

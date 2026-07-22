@@ -18,7 +18,7 @@ use super::{
 use crate::domain::{CollectionOutcome, FailureClass, Provider, ProviderUsageSnapshot, Source};
 use secrecy::{ExposeSecret, SecretString};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, VecDeque},
     ffi::OsStr,
     fs,
     path::PathBuf,
@@ -74,11 +74,11 @@ fn fake_wsl(result: Result<ProcessOutput, CollectorError>) -> WslCredentialSourc
 fn wsl_codex_arguments_are_fixed() {
     assert_eq!(
         CODEX_PROBE_SCRIPT,
-        "bash -lc 'command -v codex >/dev/null 2>&1'"
+        "bash -lc 'type -P codex >/dev/null 2>&1'"
     );
     assert!(CODEX_LAUNCH_SCRIPT.contains("exec codex -s read-only -a untrusted app-server"));
     assert!(CODEX_LAUNCH_SCRIPT.contains("setsid --wait bash -lc"));
-    assert!(!CODEX_LAUNCH_SCRIPT.contains("\\nCACHEBITE_PGID"));
+    assert!(CODEX_LAUNCH_SCRIPT.contains("\\nCACHEBITE_PGID"));
     assert!(CODEX_LAUNCH_SCRIPT.contains("CACHEBITE_PGID:%s"));
     assert!(CODEX_CLEANUP_SCRIPT.contains("*[!0-9]*"));
     assert!(CODEX_CLEANUP_SCRIPT.contains("kill -KILL -- \"-$1\""));
@@ -136,6 +136,277 @@ impl super::wsl::WslProcess for RecordingWslProcess {
             stdout: Vec::new(),
         })))
     }
+}
+
+#[derive(Clone)]
+struct SequencedWslProcess {
+    calls: Arc<Mutex<Vec<Vec<String>>>>,
+    results: Arc<Mutex<VecDeque<Result<ProcessOutput, CollectorError>>>>,
+}
+
+impl SequencedWslProcess {
+    fn new(results: Vec<Result<ProcessOutput, CollectorError>>) -> Self {
+        Self {
+            calls: Arc::new(Mutex::new(Vec::new())),
+            results: Arc::new(Mutex::new(results.into_iter().collect())),
+        }
+    }
+}
+
+impl super::wsl::WslProcess for SequencedWslProcess {
+    fn run<'a>(
+        &'a self,
+        args: &'a [&'a str],
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<ProcessOutput, CollectorError>> + Send + 'a>,
+    > {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(args.iter().map(|arg| (*arg).to_owned()).collect());
+        let result = self
+            .results
+            .lock()
+            .unwrap()
+            .pop_front()
+            .expect("unexpected call");
+        Box::pin(std::future::ready(result))
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn wsl_codex_login_success_uses_login_launch() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let process = Arc::new(SequencedWslProcess::new(vec![
+        Ok(ProcessOutput {
+            status: 0,
+            stdout: Vec::new(),
+        }),
+        Ok(ProcessOutput {
+            status: 0,
+            stdout: Vec::new(),
+        }),
+    ]));
+    let root = tempdir();
+    let executable = root.path().join("login-success-wsl");
+    let args_file = root.path().join("args");
+    let script = format!(
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\nprintf 'CACHEBITE_PGID:%s\\n' $$\nread first\nprintf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{{}}}}'\nread second\nprintf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{{\"primary\":{{\"usedPercent\":3}}}}}}'\nsleep 30\n",
+        args_file.display()
+    );
+    fs::write(&executable, script).unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    let executable = fs::canonicalize(executable).unwrap();
+    let collector = WslCodexCollector::new(
+        WslCommandFactory::with_process_and_executable_for_test(process.clone(), executable),
+    );
+    assert!(matches!(
+        collector.collect().await,
+        CollectionOutcome::Success { .. }
+    ));
+    assert_eq!(
+        fs::read_to_string(args_file).unwrap().as_str(),
+        format!("--exec\nsh\n-c\n{CODEX_LAUNCH_SCRIPT}\n")
+    );
+    let calls = process.calls.lock().unwrap();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(
+        calls[0],
+        vec![
+            "--exec".to_owned(),
+            "sh".to_owned(),
+            "-c".to_owned(),
+            "bash -lc 'type -P codex >/dev/null 2>&1'".to_owned(),
+        ]
+    );
+    assert_eq!(
+        calls[1][0..5],
+        [
+            "--exec",
+            "sh",
+            "-c",
+            CODEX_CLEANUP_SCRIPT,
+            "cachebite-cleanup"
+        ]
+    );
+    assert!(!calls[1][5].is_empty());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn wsl_codex_interactive_fallback_is_selected_after_login_probe_fails() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let process = Arc::new(SequencedWslProcess::new(vec![
+        Ok(ProcessOutput {
+            status: 1,
+            stdout: Vec::new(),
+        }),
+        Ok(ProcessOutput {
+            status: 0,
+            stdout: Vec::new(),
+        }),
+        Ok(ProcessOutput {
+            status: 0,
+            stdout: Vec::new(),
+        }),
+    ]));
+    let root = tempdir();
+    let executable = root.path().join("interactive-fallback-wsl");
+    let args_file = root.path().join("args");
+    let script = format!(
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\nprintf 'CACHEBITE_PGID:%s\\n' $$\nread first\nprintf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{{}}}}'\nread second\nprintf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{{\"primary\":{{\"usedPercent\":3}}}}}}'\nsleep 30\n",
+        args_file.display()
+    );
+    fs::write(&executable, script).unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    let executable = fs::canonicalize(executable).unwrap();
+    let collector = WslCodexCollector::new(
+        WslCommandFactory::with_process_and_executable_for_test(process.clone(), executable),
+    );
+    assert!(matches!(
+        collector.collect().await,
+        CollectionOutcome::Success { .. }
+    ));
+    assert_eq!(
+        fs::read_to_string(args_file).unwrap().as_str(),
+        format!("--exec\nsh\n-c\nexec setsid --wait bash -ic 'printf \"\\nCACHEBITE_PGID:%s\\n\" \"$$\"; exec codex -s read-only -a untrusted app-server'\n")
+    );
+    let calls = process.calls.lock().unwrap();
+    assert_eq!(calls.len(), 3);
+    assert_eq!(
+        calls[0],
+        vec![
+            "--exec".to_owned(),
+            "sh".to_owned(),
+            "-c".to_owned(),
+            "bash -lc 'type -P codex >/dev/null 2>&1'".to_owned(),
+        ]
+    );
+    assert_eq!(
+        calls[1],
+        vec![
+            "--exec".to_owned(),
+            "sh".to_owned(),
+            "-c".to_owned(),
+            "bash -ic 'type -P codex >/dev/null 2>&1'".to_owned(),
+        ]
+    );
+    assert_eq!(
+        calls[2][0..5],
+        [
+            "--exec",
+            "sh",
+            "-c",
+            CODEX_CLEANUP_SCRIPT,
+            "cachebite-cleanup"
+        ]
+    );
+    assert!(!calls[2][5].is_empty());
+}
+
+#[tokio::test]
+async fn wsl_codex_reports_missing_when_both_fixed_shell_modes_fail_without_launching() {
+    let process = Arc::new(SequencedWslProcess::new(vec![
+        Ok(ProcessOutput {
+            status: 1,
+            stdout: Vec::new(),
+        }),
+        Ok(ProcessOutput {
+            status: 1,
+            stdout: Vec::new(),
+        }),
+    ]));
+    let collector =
+        WslCodexCollector::new(WslCommandFactory::with_process_and_executable_for_test(
+            process.clone(),
+            PathBuf::from("Z:\\definitely-missing\\wsl.exe"),
+        ));
+    assert_eq!(collector.collect().await, CollectionOutcome::CliMissing);
+    let calls = process.calls.lock().unwrap();
+    assert_eq!(calls.len(), 2);
+}
+
+#[cfg(unix)]
+#[derive(Clone)]
+struct ExecutableWslProcess {
+    executable: PathBuf,
+}
+
+#[cfg(unix)]
+impl super::wsl::WslProcess for ExecutableWslProcess {
+    fn run<'a>(
+        &'a self,
+        args: &'a [&'a str],
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<ProcessOutput, CollectorError>> + Send + 'a>,
+    > {
+        let result = std::process::Command::new(&self.executable)
+            .args(args)
+            .output()
+            .map(|output| ProcessOutput {
+                status: output.status.code().unwrap_or(-1),
+                stdout: output.stdout,
+            })
+            .map_err(|_| CollectorError::Internal);
+        Box::pin(std::future::ready(result))
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn wsl_codex_interactive_nvm_launch_handles_partial_startup_output_and_reaps_child() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tempdir();
+    let home = root.path().join("home");
+    let bin = home.join(".nvm/versions/node/test-version/bin");
+    fs::create_dir_all(&bin).unwrap();
+    let codex = bin.join("codex");
+    let pid_file = root.path().join("codex-pid");
+    let codex_script = format!(
+        "#!/bin/sh\nprintf '%s\\n' $$ > '{}'\nread first\nprintf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{{}}}}'\nread second\nprintf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{{\"primary\":{{\"usedPercent\":3}}}}}}'\nsleep 30\n",
+        pid_file.display()
+    );
+    fs::write(&codex, codex_script).unwrap();
+    fs::set_permissions(&codex, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::write(
+        home.join(".bashrc"),
+        format!(
+            "printf 'nvm partial line'\nexport PATH='{}:/usr/bin:/bin'\n",
+            bin.display()
+        ),
+    )
+    .unwrap();
+
+    let executable = root.path().join("fake-wsl.exe");
+    let wsl_script = format!(
+        "#!/bin/sh\nexport HOME='{}'\nexport PATH='/usr/bin:/bin'\n[ \"$1\" = '--exec' ] || exit 64\nshift\nexec \"$@\"\n",
+        home.display()
+    );
+    fs::write(&executable, wsl_script).unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    let executable = fs::canonicalize(executable).unwrap();
+    let process = Arc::new(ExecutableWslProcess {
+        executable: executable.clone(),
+    });
+    let collector = WslCodexCollector::with_timeout_for_test(
+        WslCommandFactory::with_process_and_executable_for_test(process, executable),
+        Duration::from_secs(2),
+    );
+
+    assert!(matches!(
+        collector.collect().await,
+        CollectionOutcome::Success { .. }
+    ));
+    let pid: i32 = fs::read_to_string(pid_file)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
 }
 
 #[tokio::test]

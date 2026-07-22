@@ -13,8 +13,10 @@ use std::{future::Future, path::PathBuf, pin::Pin, sync::Arc};
 use zeroize::Zeroize;
 
 pub const CLAUDE_CREDENTIAL_SCRIPT: &str = "if [ -n \"${CLAUDE_CONFIG_DIR:-}\" ] && [ -f \"${CLAUDE_CONFIG_DIR}/.credentials.json\" ]; then cat -- \"${CLAUDE_CONFIG_DIR}/.credentials.json\"; elif [ -f \"${HOME}/.claude/.credentials.json\" ]; then cat -- \"${HOME}/.claude/.credentials.json\"; else exit 44; fi";
-pub const CODEX_PROBE_SCRIPT: &str = "bash -lc 'command -v codex >/dev/null 2>&1'";
-pub const CODEX_LAUNCH_SCRIPT: &str = "exec setsid --wait bash -lc 'printf \"CACHEBITE_PGID:%s\\n\" \"$$\"; exec codex -s read-only -a untrusted app-server'";
+pub const CODEX_PROBE_SCRIPT: &str = "bash -lc 'type -P codex >/dev/null 2>&1'";
+pub const CODEX_LAUNCH_SCRIPT: &str = "exec setsid --wait bash -lc 'printf \"\\nCACHEBITE_PGID:%s\\n\" \"$$\"; exec codex -s read-only -a untrusted app-server'";
+const CODEX_INTERACTIVE_PROBE_SCRIPT: &str = "bash -ic 'type -P codex >/dev/null 2>&1'";
+const CODEX_INTERACTIVE_LAUNCH_SCRIPT: &str = "exec setsid --wait bash -ic 'printf \"\\nCACHEBITE_PGID:%s\\n\" \"$$\"; exec codex -s read-only -a untrusted app-server'";
 pub const CODEX_CLEANUP_SCRIPT: &str = "case \"$1\" in ''|*[!0-9]*) exit 1;; esac; if ! kill -0 -- \"-$1\" 2>/dev/null; then exit 0; fi; kill -KILL -- \"-$1\" 2>/dev/null || exit 1; i=0; while kill -0 -- \"-$1\" 2>/dev/null; do i=$((i+1)); [ \"$i\" -lt 20 ] || exit 1; sleep 0.05 || exit 1; done";
 #[cfg(windows)]
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(5);
@@ -110,6 +112,35 @@ pub struct WslCodexCollector {
     timeout: std::time::Duration,
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum CodexShellMode {
+    Login,
+    Interactive,
+}
+
+impl CodexShellMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Login => "login",
+            Self::Interactive => "interactive",
+        }
+    }
+
+    fn probe_script(self) -> &'static str {
+        match self {
+            Self::Login => CODEX_PROBE_SCRIPT,
+            Self::Interactive => CODEX_INTERACTIVE_PROBE_SCRIPT,
+        }
+    }
+
+    fn launch_script(self) -> &'static str {
+        match self {
+            Self::Login => CODEX_LAUNCH_SCRIPT,
+            Self::Interactive => CODEX_INTERACTIVE_LAUNCH_SCRIPT,
+        }
+    }
+}
+
 impl WslCodexCollector {
     pub fn new(factory: WslCommandFactory) -> Self {
         Self {
@@ -148,22 +179,30 @@ async fn collect_wsl_codex(
     factory: WslCommandFactory,
     timeout: std::time::Duration,
 ) -> CollectionOutcome {
-    let probe = factory
-        .process
-        .run(&["--exec", "sh", "-c", CODEX_PROBE_SCRIPT])
-        .await;
-    #[cfg(debug_assertions)]
-    eprintln!(
-        "[CacheBite:codex] wsl probe status={:?}",
-        probe.as_ref().map(|output| output.status)
-    );
-    if !matches!(probe, Ok(ProcessOutput { status: 0, .. })) {
+    let mut shell_mode = None;
+    for mode in [CodexShellMode::Login, CodexShellMode::Interactive] {
+        let probe = factory
+            .process
+            .run(&["--exec", "sh", "-c", mode.probe_script()])
+            .await;
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "[CacheBite:codex] wsl probe mode={} status={:?}",
+            mode.label(),
+            probe.as_ref().map(|output| output.status)
+        );
+        if matches!(probe, Ok(ProcessOutput { status: 0, .. })) {
+            shell_mode = Some(mode);
+            break;
+        }
+    }
+    let Some(shell_mode) = shell_mode else {
         #[cfg(debug_assertions)]
         eprintln!("[CacheBite:codex] wsl probe failed -> CliMissing");
         return CollectionOutcome::CliMissing;
-    }
+    };
     let mut command = tokio::process::Command::new(&factory.executable);
-    command.args(["--exec", "sh", "-c", CODEX_LAUNCH_SCRIPT]);
+    command.args(["--exec", "sh", "-c", shell_mode.launch_script()]);
     let cleanup_factory = factory.clone();
     match collect_app_server_child_with_pgid(
         command,
