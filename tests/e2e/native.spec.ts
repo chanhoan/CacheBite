@@ -5,6 +5,15 @@ type ProviderStates = {
   codex: { unavailable_reason: string | null; snapshot: unknown | null };
 };
 
+type HistoryStore = {
+  claude: { samples: unknown[] };
+  codex: { samples: unknown[] };
+};
+
+type NativeSettings = {
+  primary_provider: 'claude' | 'codex';
+};
+
 type InvokeResult<T> =
   | { status: 'resolved'; value: T }
   | { status: 'rejected'; reason: string };
@@ -64,6 +73,27 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
       command,
     );
 
+  const waitForPersistedPrimary = async (
+    provider: NativeSettings['primary_provider'],
+  ) => {
+    let settings: InvokeResult<NativeSettings> | undefined;
+    await browser.waitUntil(
+      async () => {
+        settings =
+          await invokeFromCurrentWindow<NativeSettings>('get_settings');
+        return (
+          settings.status === 'resolved' &&
+          settings.value.primary_provider === provider
+        );
+      },
+      {
+        timeout: 10_000,
+        interval: 100,
+        timeoutMsg: `Primary provider was not persisted as ${provider}`,
+      },
+    );
+  };
+
   it('hydrates through registered IPC and reports the selected collectors', async () => {
     const app = $('main[aria-label="CacheBite"]');
     await expect(app).toExist();
@@ -81,7 +111,7 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
     expect(bodyText).not.toContain('Pet package unavailable');
   });
 
-  it('hydrates panel history through registered IPC', async () => {
+  it('authorizes history IPC only from the panel window', async () => {
     const overlayHistory = await invokeFromCurrentWindow('get_history');
     expect(overlayHistory).toEqual({
       status: 'rejected',
@@ -94,7 +124,13 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
     await switchToCacheBiteWindow('panel');
 
     await expect($('section[aria-label="Usage panel"]')).toExist();
-    await expect($('section[aria-label="Usage history"]')).toExist();
+    const panelHistory =
+      await invokeFromCurrentWindow<HistoryStore>('get_history');
+    expect(panelHistory.status).toBe('resolved');
+    if (panelHistory.status !== 'resolved')
+      throw new Error(`Panel history unavailable: ${panelHistory.reason}`);
+    expect(Array.isArray(panelHistory.value.claude.samples)).toBe(true);
+    expect(Array.isArray(panelHistory.value.codex.samples)).toBe(true);
   });
 
   if (expectedMode === 'production') {
@@ -108,9 +144,8 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
       const claudeTab = $('button[role="tab"]=Claude');
       await claudeTab.click();
       await expect(claudeTab).toHaveAttribute('aria-selected', 'true');
-      await expect($('section[aria-label="Usage panel"]')).toHaveText(
-        expect.stringContaining('oauth_api'),
-      );
+      const panelText = await $('section[aria-label="Usage panel"]').getText();
+      expect(panelText).not.toMatch(/oauth_api|cli_rpc|cached/);
 
       let providerStates: InvokeResult<ProviderStates> | undefined;
       try {
@@ -157,7 +192,16 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
       try {
         await codexTab.click();
         await expect(codexTab).toHaveAttribute('aria-selected', 'true');
+        await expect(claudeTab).toHaveAttribute(
+          'aria-label',
+          'Claude (primary)',
+        );
+        const setPrimary = $('button=Set as primary');
+        await expect(setPrimary).toBeEnabled();
+        await setPrimary.click();
+        await waitForPersistedPrimary('codex');
         await expect(codexTab).toHaveAttribute('aria-label', 'Codex (primary)');
+        await browser.waitUntil(async () => !(await setPrimary.isEnabled()));
         await expect($('body')).not.toHaveText(
           expect.stringContaining('Settings could not be saved'),
         );
@@ -166,6 +210,9 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
         );
       } finally {
         await claudeTab.click();
+        const setPrimary = $('button=Set as primary');
+        if (await setPrimary.isEnabled()) await setPrimary.click();
+        await waitForPersistedPrimary('claude');
         await expect(claudeTab).toHaveAttribute(
           'aria-label',
           'Claude (primary)',
