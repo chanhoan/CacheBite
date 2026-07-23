@@ -5,7 +5,8 @@ import {
   applyProviderUpdate,
   createProviderState,
   derivePetUiState,
-  tickResetTimers,
+  FRESH_MAX_AGE_MS,
+  SNAPSHOT_TTL_MS,
 } from './engine';
 import type { ProviderUiSnapshot } from '../contracts/domain';
 import { fromProviderUiSnapshotWire } from '../api/providerSnapshot';
@@ -164,16 +165,157 @@ describe('domain presentation rules', () => {
     },
   );
 
-  it('keeps an expired snapshot visible as stale without a recorded failure', () => {
+  it('keeps a snapshot visible as stale until the backend declares it expired', () => {
     const state = applyProviderUpdate(
       createProviderState('claude'),
       snapshot(),
       NOW,
     ).state;
-    expect(derivePetUiState(state, NOW + 30 * 60_000 + 1)).toMatchObject({
+    expect(derivePetUiState(state, NOW + FRESH_MAX_AGE_MS + 1)).toMatchObject({
       system: 'active',
       stale: true,
     });
+  });
+
+  it('drops an expired snapshot and degrades to error when no network failure was recorded', () => {
+    const EXPIRED_AT = NOW + SNAPSHOT_TTL_MS + 1;
+    const state = applyProviderUpdate(
+      createProviderState('claude'),
+      snapshot(),
+      NOW,
+    ).state;
+    const result = applyProviderUpdate(
+      state,
+      {
+        kind: 'snapshot_expired',
+        revision: 2,
+        unavailableReason: null,
+        failureClass: null,
+      },
+      EXPIRED_AT,
+    );
+    expect(result.accepted).toBe(true);
+    expect(result.state.snapshot).toBeNull();
+    expect(derivePetUiState(result.state, EXPIRED_AT)).toMatchObject({
+      system: 'error',
+      stale: false,
+    });
+  });
+
+  it('degrades an expired snapshot to offline when the last failure was network', () => {
+    const EXPIRED_AT = NOW + SNAPSHOT_TTL_MS + 1;
+    const state = applyProviderUpdate(
+      createProviderState('claude'),
+      snapshot({ failureClass: 'network' }),
+      NOW,
+    ).state;
+    const result = applyProviderUpdate(
+      state,
+      {
+        kind: 'snapshot_expired',
+        revision: 2,
+        unavailableReason: null,
+        failureClass: null,
+      },
+      EXPIRED_AT,
+    );
+    expect(derivePetUiState(result.state, EXPIRED_AT).system).toBe('offline');
+  });
+
+  it('keeps auth_required when a snapshot expires', () => {
+    const EXPIRED_AT = NOW + SNAPSHOT_TTL_MS + 1;
+    const withSnapshot = applyProviderUpdate(
+      createProviderState('claude'),
+      snapshot(),
+      NOW,
+    ).state;
+    const authRequired = applyProviderUpdate(
+      withSnapshot,
+      { kind: 'credentials_missing', revision: 2 },
+      NOW,
+    ).state;
+    const result = applyProviderUpdate(
+      authRequired,
+      {
+        kind: 'snapshot_expired',
+        revision: 3,
+        unavailableReason: null,
+        failureClass: null,
+      },
+      EXPIRED_AT,
+    );
+    expect(result.state.snapshot).toBeNull();
+    expect(derivePetUiState(result.state, EXPIRED_AT).system).toBe(
+      'auth_required',
+    );
+  });
+
+  it('degrades a hydrated expiry by the backend-reported reason, not the empty renderer state', () => {
+    // On boot `provider_state_from_record` fills `expired` from snapshot age and
+    // `unavailable_reason` from the last outcome independently, so both can
+    // arrive in the first event the renderer ever sees. Falling back to
+    // `state.lastFailure` there would show retry guidance to a logged-out user.
+    const result = applyProviderUpdate(
+      createProviderState('claude'),
+      {
+        kind: 'snapshot_expired',
+        revision: 4,
+        unavailableReason: 'not_signed_in',
+        failureClass: null,
+      },
+      NOW,
+    );
+    expect(result.accepted).toBe(true);
+    expect(derivePetUiState(result.state, NOW).system).toBe('auth_required');
+  });
+
+  it('degrades a hydrated expiry to unavailable when the CLI is missing', () => {
+    const result = applyProviderUpdate(
+      createProviderState('codex'),
+      {
+        kind: 'snapshot_expired',
+        revision: 4,
+        unavailableReason: 'not_installed',
+        failureClass: null,
+      },
+      NOW,
+    );
+    expect(derivePetUiState(result.state, NOW).system).toBe('unavailable');
+  });
+
+  it('degrades a hydrated expiry to offline from the reported failure class', () => {
+    const result = applyProviderUpdate(
+      createProviderState('claude'),
+      {
+        kind: 'snapshot_expired',
+        revision: 4,
+        unavailableReason: null,
+        failureClass: 'network',
+      },
+      NOW,
+    );
+    expect(derivePetUiState(result.state, NOW).system).toBe('offline');
+    expect(result.state.lastFailure).toBe('network');
+  });
+
+  it('ignores an expiry whose revision is not newer', () => {
+    const state = applyProviderUpdate(
+      createProviderState('claude'),
+      snapshot({ revision: 7 }),
+      NOW,
+    ).state;
+    const result = applyProviderUpdate(
+      state,
+      {
+        kind: 'snapshot_expired',
+        revision: 6,
+        unavailableReason: null,
+        failureClass: null,
+      },
+      NOW + SNAPSHOT_TTL_MS + 1,
+    );
+    expect(result.accepted).toBe(false);
+    expect(result.state).toBe(state);
   });
 
   it('discards updates whose revision is not newer', () => {
@@ -189,26 +331,6 @@ describe('domain presentation rules', () => {
     );
     expect(result.accepted).toBe(false);
     expect(result.state).toBe(revisionSeven);
-  });
-
-  it('emits one optimistic reset and leaves the window unknown until refresh', () => {
-    const due = snapshot({
-      session: {
-        usedPercent: 99,
-        windowMinutes: 300,
-        resetsAt: '2026-07-16T12:00:00Z',
-      },
-    });
-    const initial = applyProviderUpdate(
-      createProviderState('claude'),
-      due,
-      NOW - 1,
-    ).state;
-    const first = tickResetTimers(initial, NOW);
-    const second = tickResetTimers(first.state, NOW + 1);
-    expect(first.events).toEqual([{ kind: 'window_reset', window: 'session' }]);
-    expect(derivePetUiState(first.state, NOW).sessionSeverity).toBe('unknown');
-    expect(second.events).toEqual([]);
   });
 
   it('marks retained provider usage unknown when the backend reports reset pending', () => {

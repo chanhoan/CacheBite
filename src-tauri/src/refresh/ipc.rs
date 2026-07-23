@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use super::{ProviderState, RefreshService};
@@ -136,7 +138,7 @@ pub fn get_settings(
 #[tauri::command]
 pub fn get_history(
     window: tauri::WebviewWindow,
-    repository: State<'_, HistoryRepository>,
+    repository: State<'_, Arc<HistoryRepository>>,
 ) -> Result<HistoryStore, IpcError> {
     authorize(&window, NativeCommand::GetHistory)?;
     repository

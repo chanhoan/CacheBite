@@ -1,12 +1,10 @@
 <script>
-  import { onMount } from 'svelte';
-  import { BUBBLE_DISMISS_MS } from '../interaction/bubblePolicy';
+  // Dismissal timing lives with the policy that produced `expiresAt`, not here.
+  // A mount-scoped timer fired once per component instance, so a replacement
+  // bubble inherited the previous bubble's remaining time instead of a full
+  // interval. See the bubble `$effect` in App.svelte.
   /** @type {{ message: string; onDismiss?: () => void; onOpenPanel?: () => void }} */
   let { message, onDismiss = () => {}, onOpenPanel = () => {} } = $props();
-  onMount(() => {
-    const timer = window.setTimeout(onDismiss, BUBBLE_DISMISS_MS);
-    return () => window.clearTimeout(timer);
-  });
   const click = () => {
     onDismiss();
     onOpenPanel();

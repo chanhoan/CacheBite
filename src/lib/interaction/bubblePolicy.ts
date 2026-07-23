@@ -30,6 +30,13 @@ export const createBubblePolicy = (): BubblePolicyState => ({
   bubble: null,
   dedupe: new Set(),
 });
+export function expireBubble(
+  state: BubblePolicyState,
+  nowMs: number,
+): BubblePolicyState {
+  if (state.bubble === null || nowMs < state.bubble.expiresAt) return state;
+  return { ...state, bubble: null };
+}
 export function reduceBubble(
   state: BubblePolicyState,
   event: BubbleEvent,

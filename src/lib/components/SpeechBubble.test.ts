@@ -7,7 +7,7 @@ describe('SpeechBubble', () => {
     cleanup();
     vi.useRealTimers();
   });
-  it('dismisses after eight seconds', async () => {
+  it('leaves timed dismissal to the policy layer', async () => {
     vi.useFakeTimers();
     const dismiss = vi.fn();
     render(SpeechBubble, {
@@ -17,8 +17,10 @@ describe('SpeechBubble', () => {
         onOpenPanel: vi.fn(),
       },
     });
-    await vi.advanceTimersByTimeAsync(8000);
-    expect(dismiss).toHaveBeenCalledOnce();
+    // A mount-scoped timer here could not be re-armed when the bubble is
+    // replaced, so expiry is driven from `expiresAt` in App.svelte instead.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(dismiss).not.toHaveBeenCalled();
   });
   it('opens the panel and dismisses when clicked', async () => {
     const dismiss = vi.fn();

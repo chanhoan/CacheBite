@@ -1,6 +1,11 @@
 <script>
-  /** @type {{ settings: { primaryProvider: import('../contracts/domain').Provider; bubblesEnabled: boolean; startAtLogin: boolean; notificationsEnabled: boolean; secondaryNotificationsEnabled: boolean }; autostartAvailable?: boolean; onChange?: (settings: any) => void }} */
+  /** @type {{ settings: import('../state/presentation').SettingsStoreState; autostartAvailable?: boolean; onChange?: (settings: import('../state/presentation').SettingsStoreState) => void }} */
   let { settings, autostartAvailable = true, onChange = () => {} } = $props();
+
+  // The <select> only ever holds the two option values below, but its DOM type
+  // is plain string. Narrow at the boundary rather than trusting the markup.
+  /** @param {string} value @returns {import('../contracts/domain').Provider} */
+  const asProvider = (value) => (value === 'codex' ? 'codex' : 'claude');
 </script>
 
 <fieldset class="settings">
@@ -31,7 +36,10 @@
     >Primary provider <select
       value={settings.primaryProvider}
       onchange={(event) =>
-        onChange({ ...settings, primaryProvider: event.currentTarget.value })}
+        onChange({
+          ...settings,
+          primaryProvider: asProvider(event.currentTarget.value),
+        })}
       ><option value="claude">Claude</option><option value="codex">Codex</option
       ></select
     ></label

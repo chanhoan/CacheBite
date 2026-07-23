@@ -100,6 +100,7 @@ const fixture = () => {
     startDragging: vi.fn(async () => undefined),
     listenPositionMoved: vi.fn(async () => () => undefined),
     showPanel: vi.fn(async () => undefined),
+    quit: vi.fn(async () => undefined),
   };
   return {
     gateway,
@@ -595,6 +596,99 @@ describe('application composition root', () => {
     expect(gateway.updateSettings).toHaveBeenCalledWith(
       expect.objectContaining({ notificationsEnabled: false }),
     );
+  });
+
+  it('retires the speech bubble once its expiry deadline passes', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { gateway, emit } = fixture();
+      render(App, { props: { gateway, notificationAdapter: notifications } });
+      await screen.findByLabelText('CacheBite pet status');
+
+      // 91% -> 100% crosses critical into exhausted, which is what fires a
+      // bubble; the first snapshot cannot, since it has no prior severity.
+      emit(active('claude', 2, 100));
+      const bubble = await screen.findByRole('button', {
+        name: '5-hour usage is exhausted',
+      });
+      expect(bubble).toBeTruthy();
+
+      await vi.advanceTimersByTimeAsync(7_999);
+      expect(
+        screen.queryByRole('button', { name: '5-hour usage is exhausted' }),
+      ).toBeTruthy();
+
+      await vi.advanceTimersByTimeAsync(1);
+      await waitFor(() =>
+        expect(
+          screen.queryByRole('button', { name: '5-hour usage is exhausted' }),
+        ).toBeNull(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ages a fresh snapshot into stale without any new provider event', async () => {
+    window.history.replaceState({}, '', '/?window=panel');
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { gateway } = fixture();
+      render(App, { props: { gateway, notificationAdapter: notifications } });
+      expect(await screen.findByText(/Fresh/)).toBeTruthy();
+
+      // 21 minutes clears FRESH_MAX_AGE_MS with no snapshot in between: the
+      // transition can only come from the clock ticker.
+      await vi.advanceTimersByTimeAsync(21 * 60_000);
+      await waitFor(() => expect(screen.getByText(/Stale/)).toBeTruthy());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('degrades to error guidance when the backend reports the snapshot expired', async () => {
+    window.history.replaceState({}, '', '/?window=panel');
+    const { gateway, emit } = fixture();
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+    await screen.findByText('Pro');
+
+    emit({ ...active('claude', 3), snapshot: null, expired: true });
+
+    expect(
+      await screen.findByText('Could not fetch usage. Retrying shortly.'),
+    ).toBeTruthy();
+  });
+
+  it('keeps sign-in guidance when an expired snapshot arrives with the reason', async () => {
+    // `provider_state_from_record` fills `expired` and `unavailable_reason`
+    // independently, so a logged-out user with a stale cache gets both at once.
+    // Degrading on renderer state alone would print retry guidance instead.
+    window.history.replaceState({}, '', '/?window=panel');
+    const { gateway, emit } = fixture();
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+    await screen.findByText('Pro');
+
+    emit({
+      ...active('claude', 3),
+      snapshot: null,
+      expired: true,
+      unavailable_reason: 'not_signed_in',
+    });
+
+    expect(
+      await screen.findByText('Sign in to the Claude CLI: claude login'),
+    ).toBeTruthy();
+  });
+
+  it('routes the panel quit button to the native command', async () => {
+    window.history.replaceState({}, '', '/?window=panel');
+    const { gateway } = fixture();
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Quit CacheBite' }),
+    );
+    expect(gateway.quit).toHaveBeenCalledOnce();
   });
 
   it('surfaces unavailable platform capabilities and disables autostart', async () => {

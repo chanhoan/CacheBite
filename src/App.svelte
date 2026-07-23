@@ -77,7 +77,10 @@
   let appSettings = $state<AppSettings>({
     schemaVersion: 3,
     primaryProvider: 'claude',
-    selectedPetId: 'idle',
+    // Must match the Rust default (`store/settings.rs`). 'idle' is an animation
+    // key, not a package id, so a getSettings() failure used to guarantee a
+    // failed pet load.
+    selectedPetId: 'cat',
     bubblesEnabled: true,
     startAtLogin: false,
     notificationsEnabled: false,
@@ -99,6 +102,16 @@
   let notificationDiagnostic = $state<NotificationDiagnostic>({
     status: 'available',
   });
+  // `Date.now()` is not a reactive dependency, so a `$derived` that calls it
+  // only recomputes when some unrelated `$state` happens to change. This ticker
+  // is that dependency: it drives fresh→stale transitions and relative-time
+  // labels when no snapshot arrives. One minute is fine for a 20-minute stale
+  // boundary and for "N min ago"; anything shorter re-renders the always-on
+  // overlay for no visible gain.
+  const CLOCK_TICK_MS = 60_000;
+  /** Overlay window edge in logical pixels — must match `tauri.conf.json`. */
+  const OVERLAY_WINDOW_PX = 240;
+  let nowMs = $state(Date.now());
   let settingsSaveFailed = $state(false);
   let positionSaveFailed = $state(false);
   let notificationQueue: Promise<void> = Promise.resolve();
@@ -171,6 +184,15 @@
   };
 
   const statusUpdate = (wire: ProviderBackendStateWire) => {
+    // Expiry outranks every other branch: an expired snapshot is not a reset
+    // candidate, and its payload must not be applied as if it were current.
+    if (wire.expired)
+      return providersStore.applyExpiry(
+        wire.provider,
+        wire.revision,
+        wire.unavailable_reason,
+        wire.failure_class,
+      );
     if (wire.reset_pending) {
       if (wire.snapshot)
         providersStore.apply(
@@ -393,15 +415,41 @@
     };
   });
 
+  $effect(() => {
+    const ticker = window.setInterval(() => {
+      nowMs = Date.now();
+    }, CLOCK_TICK_MS);
+    return () => window.clearInterval(ticker);
+  });
+
+  // Contract §7.1-4: the bubble self-dismisses after BUBBLE_DISMISS_MS. The
+  // timer is armed per bubble; a replacement bubble re-arms it via cleanup, and
+  // a manual dismiss simply leaves the pending timer to no-op on an empty
+  // policy. Only the overlay renders bubbles.
+  $effect(() => {
+    if (windowLabel !== 'overlay') return;
+    const bubble = $interactionStore.bubblePolicy.bubble;
+    if (!bubble) return;
+    // Expire against the deadline, not the wall clock at fire time: a timer that
+    // fires a millisecond early would leave the policy untouched, and since the
+    // policy returns the same reference the effect never re-arms — the bubble
+    // would stick forever.
+    const timer = window.setTimeout(
+      () => interactionStore.expireBubble(bubble.expiresAt),
+      Math.max(0, bubble.expiresAt - Date.now()),
+    );
+    return () => window.clearTimeout(timer);
+  });
+
   const panelProviders = $derived({
-    claude: toProviderPresentation($providersStore.claude, Date.now()),
-    codex: toProviderPresentation($providersStore.codex, Date.now()),
+    claude: toProviderPresentation($providersStore.claude, nowMs),
+    codex: toProviderPresentation($providersStore.codex, nowMs),
   });
   const primaryState = $derived($providersStore[appSettings.primaryProvider]);
   const primaryPresentation = $derived(
-    toProviderPresentation(primaryState, Date.now()),
+    toProviderPresentation(primaryState, nowMs),
   );
-  const primaryUi = $derived(derivePetUiState(primaryState, Date.now()));
+  const primaryUi = $derived(derivePetUiState(primaryState, nowMs));
   const resolvedAnimation = $derived(
     petPackage
       ? resolvePetAnimation(
@@ -414,6 +462,15 @@
           }),
         )
       : null,
+  );
+  // The overlay window is a fixed square (`tauri.conf.json`), so a manifest that
+  // declares something larger would simply be clipped. Clamp instead, and fall
+  // back to the window edge when no package has loaded.
+  const overlaySize = $derived(
+    Math.min(
+      OVERLAY_WINDOW_PX,
+      petPackage?.manifest.defaultSize.width ?? OVERLAY_WINDOW_PX,
+    ),
   );
   const overlayModel = $derived<PetOverlayViewModel | null>(
     resolvedAnimation
@@ -431,6 +488,7 @@
           animation: resolvedAnimation,
           petName:
             petPackage?.manifest.displayName ?? appSettings.selectedPetId,
+          size: overlaySize,
         }
       : null,
   );
@@ -528,6 +586,8 @@
       selected={$providersStore.selected}
       primary={$settingsStore.primaryProvider}
       refreshing={$providersStore.refreshing[$providersStore.selected]}
+      {nowMs}
+      onQuit={() => void gateway.quit()}
       onSelect={(provider) => {
         providersStore.selectTab(provider);
         if (provider !== $settingsStore.primaryProvider) {

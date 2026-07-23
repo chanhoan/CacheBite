@@ -84,6 +84,8 @@ export interface AppGateway {
     onSaveFailure?: (failure: 'position_save_failed') => void,
   ): Promise<() => void>;
   showPanel(): Promise<void>;
+  /** Authorized for the `panel` window only (`window::command_allowed`). */
+  quit(): Promise<void>;
 }
 
 type SettingsWire = {
@@ -230,4 +232,5 @@ export const tauriGateway: AppGateway = {
     };
   },
   showPanel: () => invokeNative('show_panel'),
+  quit: () => invokeNative('quit'),
 };

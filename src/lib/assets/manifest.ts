@@ -1,9 +1,10 @@
+// Mirrors `RequestedAnimationKey` (./resolver.ts) and ui-contract §6. The bare
+// severity names `ok`/`warn`/`critical`/`exhausted` were an earlier naming
+// scheme: they passed validation but were never requested, so a package
+// declaring them rendered nothing and reported nothing. Rejecting them at
+// validation turns that silent miss into a clear error.
 export const PET_STATES = [
   'idle',
-  'ok',
-  'warn',
-  'critical',
-  'exhausted',
   'idle_warn',
   'idle_critical',
   'idle_exhausted',

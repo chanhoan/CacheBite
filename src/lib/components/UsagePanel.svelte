@@ -1,18 +1,26 @@
 <script>
   import ProviderTabs from './ProviderTabs.svelte';
   import UsageGauge from './UsageGauge.svelte';
-  /** @typedef {{ provider: import('../contracts/domain').Provider; system: string; stale: boolean; planType: string | null; session: { usedPercent: number | null; severity: string; resetsAt: string | null }; weekly: { usedPercent: number | null; severity: string; resetsAt: string | null }; capturedAt: string | null; source: string; isCached: boolean }} PanelProvider */
-  /** @type {{ providers: { claude: PanelProvider; codex: PanelProvider }; selected: import('../contracts/domain').Provider; primary?: import('../contracts/domain').Provider; refreshing: boolean; onRefresh?: (provider: import('../contracts/domain').Provider) => void; onSelect?: (provider: import('../contracts/domain').Provider) => void; onPrimary?: (provider: import('../contracts/domain').Provider) => void }} */
+  import { capturedAgo } from '../format/time.js';
+  import { systemGuidance } from './systemGuidance.js';
+  /** @typedef {import('./panelModels').PanelProviderModel} PanelProvider */
+  /** @type {{ providers: { claude: PanelProvider; codex: PanelProvider }; selected: import('../contracts/domain').Provider; primary?: import('../contracts/domain').Provider; refreshing: boolean; nowMs?: number; onRefresh?: (provider: import('../contracts/domain').Provider) => void; onSelect?: (provider: import('../contracts/domain').Provider) => void; onPrimary?: (provider: import('../contracts/domain').Provider) => void; onQuit?: () => void }} */
   let {
     providers,
     selected,
     primary = selected,
     refreshing,
+    nowMs = Date.now(),
     onRefresh = () => {},
     onSelect = () => {},
     onPrimary = () => {},
+    onQuit = () => {},
   } = $props();
   const current = $derived(providers[selected]);
+  const guidance = $derived(systemGuidance(current.system, selected));
+  const captured = $derived(
+    current.capturedAt === null ? null : capturedAgo(current.capturedAt, nowMs),
+  );
 </script>
 
 <section class="usage-panel" aria-label="Usage panel">
@@ -37,21 +45,30 @@
         label="5-hour"
         window={current.session}
         stale={current.stale}
+        {nowMs}
       />
       <UsageGauge
         label="Weekly"
         window={current.weekly}
         stale={current.stale}
+        {nowMs}
+        resetFormat="absolute"
       />
       <small class:stale={current.stale} class="freshness"
-        >● {current.stale ? 'Stale' : 'Fresh'}{#if current.capturedAt}<span
+        >● {current.stale
+          ? 'Stale'
+          : 'Fresh'}{#if current.capturedAt && captured}<span
             >&nbsp;· captured <time datetime={current.capturedAt}
-              >{current.capturedAt}</time
+              >{captured}</time
             ></span
           >{/if} · {current.source}{current.isCached ? ' · cached' : ''}</small
       >
     {/if}
   </div>
+  <!-- Stays mounted so a state change is announced rather than re-declared;
+       only its content varies. Kept out of the grid so the empty case adds no
+       gap, and collapsed to zero height by having no line box. -->
+  <p class="guidance" role="status">{guidance ?? ''}</p>
   <footer>
     <button
       class="primary-action"
@@ -62,6 +79,9 @@
       class="secondary-action"
       disabled={selected === primary}
       onclick={() => onPrimary(selected)}>Set as primary</button
+    >
+    <button class="tertiary-action" onclick={() => onQuit()}
+      >Quit CacheBite</button
     >
   </footer>
 </section>
@@ -125,11 +145,30 @@
   .primary-action {
     border: 1px solid var(--color-accent);
     background: var(--color-accent);
-    color: #fff;
+    color: var(--badge-icon);
   }
   .secondary-action {
     border: 1px solid var(--color-border);
     background: transparent;
     color: var(--color-text);
+  }
+  .tertiary-action {
+    grid-column: 1 / -1;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--color-text-muted);
+    font-weight: 500;
+  }
+  .tertiary-action:hover,
+  .tertiary-action:focus-visible {
+    border-color: var(--color-border);
+    color: var(--color-text);
+  }
+  .guidance {
+    padding: 0 var(--space-4);
+    margin: 0;
+    color: var(--color-text-muted);
+    font-size: 0.75rem;
+    line-height: 1.45;
   }
 </style>

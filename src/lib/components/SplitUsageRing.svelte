@@ -9,7 +9,13 @@
       : Math.min(100, Math.max(0, window.usedPercent));
   /** @param {string} name @param {import('./models').RingWindowModel} window */
   const label = (name, window) =>
-    `${name} usage: ${window.severity === 'unknown' ? 'unknown' : `${Math.round(percent(window))}%`}`;
+    `${name} ${window.severity === 'unknown' ? 'unknown' : `${Math.round(percent(window))}%`}`;
+  // A bare <path> has no implicit role, so a per-path aria-label is dropped by
+  // the accessibility tree. One composed label on the <svg> is both announced
+  // and easier to listen to than two arcs read in isolation.
+  const ringLabel = $derived(
+    `Provider usage: ${label('5-hour', session)}, ${label('Weekly', weekly)}`,
+  );
 </script>
 
 <svg
@@ -18,7 +24,8 @@
   class:stale
   class="ring"
   viewBox="0 0 100 100"
-  aria-label="Provider usage"
+  role="img"
+  aria-label={ringLabel}
 >
   <path class="track" d="M 8 50 A 42 42 0 0 1 92 50" pathLength="100" />
   <path
@@ -27,7 +34,7 @@
     d="M 8 50 A 42 42 0 0 1 92 50"
     pathLength="100"
     stroke-dasharray={`${percent(session)} 100`}
-    aria-label={label('5-hour', session)}
+    aria-hidden="true"
   />
   <path class="track" d="M 92 50 A 42 42 0 0 1 8 50" pathLength="100" />
   <path
@@ -36,7 +43,7 @@
     d="M 92 50 A 42 42 0 0 1 8 50"
     pathLength="100"
     stroke-dasharray={`${percent(weekly)} 100`}
-    aria-label={label('Weekly', weekly)}
+    aria-hidden="true"
   />
   <text class="ring-label" x="50" y="4" text-anchor="middle" aria-hidden="true"
     >5H</text

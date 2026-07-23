@@ -18,6 +18,9 @@
   --badge-error: #dc2626;
   --badge-offline: #64748b;
   --badge-loading: #3b5bdb;
+  /* Foreground drawn on top of a filled badge or accent button. Both schemes
+     keep saturated fills, so this stays near-white in dark mode too. */
+  --badge-icon: #ffffff;
   --overlay-stale-dim: 0.42;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
   --space-1: 0.25rem;

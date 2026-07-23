@@ -9,6 +9,11 @@
   } from './historyGraph';
 
   type WindowName = HistoryWindow;
+  // The tablist had no tabpanel to point at, leaving the ARIA pattern half
+  // built. Only one panel exists, so a module constant is enough.
+  const PANEL_ID = 'history-graph-panel';
+  const SESSION_TAB_ID = 'history-graph-tab-session';
+  const WEEKLY_TAB_ID = 'history-graph-tab-weekly';
   let {
     samples,
     window,
@@ -55,50 +60,70 @@
   <div role="tablist" aria-label="History window">
     <button
       bind:this={sessionTab}
+      id={SESSION_TAB_ID}
       role="tab"
       aria-selected={window === 'session'}
+      aria-controls={PANEL_ID}
       tabindex={window === 'session' ? 0 : -1}
       onclick={() => choose('session')}
       onkeydown={(event) => navigate(event, 'session')}>5-hour</button
     >
     <button
       bind:this={weeklyTab}
+      id={WEEKLY_TAB_ID}
       role="tab"
       aria-selected={window === 'weekly'}
+      aria-controls={PANEL_ID}
       tabindex={window === 'weekly' ? 0 : -1}
       onclick={() => choose('weekly')}
       onkeydown={(event) => navigate(event, 'weekly')}>Weekly</button
     >
   </div>
-  {#if rawPointCount === 0}
-    <p>No {label.toLowerCase()} history yet</p>
-  {:else}
-    <svg role="img" aria-label={`${label} usage history`} viewBox="0 0 100 100">
-      {#if isSampled}
-        <desc
-          >Showing a sampled view of {rawPointCount.toLocaleString()} points.</desc
-        >
-      {/if}
-      {#each sampledSegments as segment (segment.points[0]?.key)}
-        <path
-          data-testid="history-segment"
-          d={path(segment.points)}
-          fill="none"
-          stroke="var(--color-accent)"
-        />
-      {/each}
-      {#each points as point (point.key)}
-        <circle
-          role="img"
-          cx={point.x}
-          cy={point.y}
-          r="2"
-          fill="var(--color-accent)"
-          aria-label={`${point.usedPercent}% at ${point.capturedAt}`}
-        />
-      {/each}
-    </svg>
-  {/if}
+  <!-- The panel holds no focusable content, so it takes focus itself (APG
+       tabs pattern) and borrows its name from the active tab rather than
+       repeating the label the inner <svg> already announces. -->
+  <div
+    id={PANEL_ID}
+    role="tabpanel"
+    tabindex="0"
+    aria-labelledby={window === 'session' ? SESSION_TAB_ID : WEEKLY_TAB_ID}
+  >
+    {#if rawPointCount === 0}
+      <p>No {label.toLowerCase()} history yet</p>
+    {:else}
+      <svg
+        role="img"
+        aria-label={`${label} usage history`}
+        viewBox="0 0 100 100"
+      >
+        {#if isSampled}
+          <desc
+            >Showing a sampled view of {rawPointCount.toLocaleString()} points.</desc
+          >
+        {/if}
+        {#each sampledSegments as segment (segment.points[0]?.key)}
+          <path
+            data-testid="history-segment"
+            d={path(segment.points)}
+            fill="none"
+            stroke="var(--color-accent)"
+          />
+        {/each}
+        <!-- Up to VISUAL_POINT_CAP marks. Exposing each as its own image role
+             floods the accessibility tree; the <svg> label and <desc> already
+             represent the series. -->
+        {#each points as point (point.key)}
+          <circle
+            cx={point.x}
+            cy={point.y}
+            r="2"
+            fill="var(--color-accent)"
+            aria-hidden="true"
+          />
+        {/each}
+      </svg>
+    {/if}
+  </div>
 </section>
 
 <style>
@@ -113,6 +138,11 @@
   [role='tablist'] {
     display: flex;
     gap: var(--space-1);
+  }
+  [role='tabpanel']:focus-visible {
+    border-radius: 0.35rem;
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
   }
   button {
     border: 0;

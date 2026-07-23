@@ -2,6 +2,7 @@ import { writable } from 'svelte/store';
 import type { BubblePolicyState } from '../interaction/bubblePolicy';
 import { createBubblePolicy } from '../interaction/bubblePolicy';
 import {
+  expireBubble,
   reduceBubble,
   type BubbleContext,
   type BubbleEvent,
@@ -31,6 +32,14 @@ export function createInteractionStore() {
         ...state,
         bubblePolicy: { ...state.bubblePolicy, bubble: null },
       }));
+    },
+    expireBubble(nowMs: number) {
+      update((state) => {
+        const bubblePolicy = expireBubble(state.bubblePolicy, nowMs);
+        return bubblePolicy === state.bubblePolicy
+          ? state
+          : { ...state, bubblePolicy };
+      });
     },
     handleBubble(event: BubbleEvent, context: BubbleContext) {
       update((state) => ({

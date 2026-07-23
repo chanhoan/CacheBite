@@ -79,7 +79,7 @@
     place-items: center;
     border: 2.5px solid var(--color-surface);
     border-radius: 50%;
-    color: #fff;
+    color: var(--badge-icon);
     box-shadow: 0 2px 6px rgb(0 0 0 / 20%);
   }
   svg {

@@ -28,7 +28,16 @@ describe('HistoryGraph', () => {
     expect(
       screen.getByRole('img', { name: '5-hour usage history' }),
     ).toBeTruthy();
-    expect(screen.getByLabelText('10% at 2026-07-16T00:00:00Z')).toBeTruthy();
+    // The tablist now points at a real, focusable tabpanel named by its tab,
+    // and individual marks are hidden so the series is announced once rather
+    // than once per point.
+    const panel = screen.getByRole('tabpanel', { name: '5-hour' });
+    const tab = screen.getByRole('tab', { name: '5-hour' });
+    expect(tab.getAttribute('aria-controls')).toBe(panel.id);
+    expect(panel.getAttribute('aria-labelledby')).toBe(tab.id);
+    expect(panel.getAttribute('tabindex')).toBe('0');
+    expect(panel.querySelectorAll('circle')).toHaveLength(1);
+    expect(screen.queryByLabelText('10% at 2026-07-16T00:00:00Z')).toBeNull();
   });
 
   it('breaks paths and uses native activation without double handling Enter', async () => {
