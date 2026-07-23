@@ -279,6 +279,12 @@ pub fn show_panel(window: tauri::WebviewWindow, app: AppHandle) -> Result<(), Ip
 }
 
 #[tauri::command]
+pub fn hide_panel(window: tauri::WebviewWindow) -> Result<(), IpcError> {
+    authorize(&window, NativeCommand::HidePanel)?;
+    window.hide().map_err(|_| IpcError::PanelUnavailable)
+}
+
+#[tauri::command]
 pub fn quit(window: tauri::WebviewWindow, app: AppHandle) -> Result<(), IpcError> {
     authorize(&window, NativeCommand::Quit)?;
     app.exit(0);

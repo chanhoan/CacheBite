@@ -65,6 +65,7 @@ pub enum NativeCommand {
     RefreshProvider,
     UpdateSettings,
     ShowPanel,
+    HidePanel,
     Quit,
 }
 
@@ -91,6 +92,7 @@ pub fn command_allowed(window_label: &str, command: NativeCommand) -> bool {
                 | NativeCommand::RefreshProvider
                 | NativeCommand::UpdateSettings
                 | NativeCommand::ShowPanel
+                | NativeCommand::HidePanel
                 | NativeCommand::Quit
         ),
         _ => false,

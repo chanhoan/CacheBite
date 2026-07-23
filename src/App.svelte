@@ -29,7 +29,6 @@
   import type { Provider } from './lib/contracts/domain';
   import {
     beginPointer,
-    releasePointer,
     updatePointer,
     type PetPointerState,
   } from './lib/interaction/petPointer';
@@ -546,6 +545,11 @@
     return operation;
   };
   const pointerDown = (event: PointerEvent) => {
+    (
+      event.currentTarget as EventTarget & {
+        setPointerCapture?: (pointerId: number) => void;
+      }
+    ).setPointerCapture?.(event.pointerId);
     pointer = beginPointer({ x: event.clientX, y: event.clientY });
   };
   const pointerMove = (event: PointerEvent) => {
@@ -557,13 +561,17 @@
   };
   const pointerUp = (event: PointerEvent) => {
     if (!pointer) return;
-    const completed = releasePointer(
-      updatePointer(pointer, { x: event.clientX, y: event.clientY }),
-    );
+    const surface = event.currentTarget as EventTarget & {
+      hasPointerCapture?: (pointerId: number) => boolean;
+      releasePointerCapture?: (pointerId: number) => void;
+    };
+    if (surface.hasPointerCapture?.(event.pointerId)) {
+      surface.releasePointerCapture?.(event.pointerId);
+    }
     pointer = null;
     interactionStore.setDragging(false);
-    if (completed.kind === 'toggle_panel') void gateway.showPanel();
   };
+  const pointerCancel = (event: PointerEvent) => pointerUp(event);
 </script>
 
 <main
@@ -587,6 +595,7 @@
       primary={$settingsStore.primaryProvider}
       refreshing={$providersStore.refreshing[$providersStore.selected]}
       {nowMs}
+      onClose={() => void gateway.hidePanel()}
       onQuit={() => void gateway.quit()}
       onSelect={(provider) => {
         providersStore.selectTab(provider);
@@ -627,23 +636,22 @@
         {notificationDiagnostic.reason}
       </p>{/if}
   {:else}
-    <div
-      data-testid="overlay-pointer-surface"
-      onpointerdown={pointerDown}
-      onpointermove={pointerMove}
-      onpointerup={pointerUp}
-    >
-      {#if overlayModel}
-        <PetOverlay model={overlayModel} />
-      {:else if petPackageError}
-        <p role="status">Pet package unavailable</p>
-      {/if}
-    </div>
+    {#if overlayModel}
+      <PetOverlay
+        model={overlayModel}
+        onPointerDown={pointerDown}
+        onPointerMove={pointerMove}
+        onPointerUp={pointerUp}
+        onPointerCancel={pointerCancel}
+        onOpen={() => void gateway.showPanel()}
+      />
+    {:else if petPackageError}
+      <p role="status">Pet package unavailable</p>
+    {/if}
     {#if $interactionStore.bubblePolicy.bubble}
       <SpeechBubble
         message={$interactionStore.bubblePolicy.bubble.message}
         onDismiss={() => interactionStore.dismissBubble()}
-        onOpenPanel={() => void gateway.showPanel()}
       />
     {/if}
     {#if positionSaveFailed}<p role="status">

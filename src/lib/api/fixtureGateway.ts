@@ -72,5 +72,6 @@ export const rendererFixtureGateway: AppGateway = {
   startDragging: async () => undefined,
   listenPositionMoved: async () => () => undefined,
   showPanel: async () => undefined,
+  hidePanel: async () => undefined,
   quit: async () => undefined,
 };

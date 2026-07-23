@@ -45,11 +45,21 @@
     stroke-dasharray={`${percent(weekly)} 100`}
     aria-hidden="true"
   />
-  <text class="ring-label" x="50" y="4" text-anchor="middle" aria-hidden="true"
-    >5H</text
+  <text
+    class="ring-label"
+    x="50"
+    y="4"
+    text-anchor="middle"
+    font-size="9"
+    aria-hidden="true">5H</text
   >
-  <text class="ring-label" x="50" y="99" text-anchor="middle" aria-hidden="true"
-    >WK</text
+  <text
+    class="ring-label"
+    x="50"
+    y="104"
+    text-anchor="middle"
+    font-size="9"
+    aria-hidden="true">WK</text
   >
 </svg>
 
@@ -85,10 +95,10 @@
     stroke: var(--sev-exhausted);
   }
   .ring-label {
-    fill: var(--color-text-faint);
+    fill: var(--color-text-muted);
     stroke: none;
     font-family: var(--font-mono);
-    font-size: 4px;
+    font-size: 9px;
     font-weight: 600;
     letter-spacing: 0.08em;
   }

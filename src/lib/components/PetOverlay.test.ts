@@ -36,6 +36,14 @@ describe('PetOverlay', () => {
     ).toBeTruthy();
     expect(screen.getByText('5H')).toBeTruthy();
     expect(screen.getByText('WK')).toBeTruthy();
+    expect(screen.getByText('5H').getAttribute('font-size')).toBe('9');
+    expect(screen.getByText('WK').getAttribute('font-size')).toBe('9');
+    expect(screen.getByText('WK').getAttribute('y')).toBe('104');
+    const surface = screen.getByRole('button', {
+      name: 'Move pet; double-click or press Enter for usage',
+    });
+    expect(surface.getAttribute('data-testid')).toBe('overlay-pointer-surface');
+    expect(surface.style.clipPath).toBe('circle(50% at 50% 50%)');
     expect(screen.queryByRole('status')).toBeNull();
   });
 

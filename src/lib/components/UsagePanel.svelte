@@ -4,7 +4,7 @@
   import { capturedAgo } from '../format/time.js';
   import { systemGuidance } from './systemGuidance.js';
   /** @typedef {import('./panelModels').PanelProviderModel} PanelProvider */
-  /** @type {{ providers: { claude: PanelProvider; codex: PanelProvider }; selected: import('../contracts/domain').Provider; primary?: import('../contracts/domain').Provider; refreshing: boolean; nowMs?: number; onRefresh?: (provider: import('../contracts/domain').Provider) => void; onSelect?: (provider: import('../contracts/domain').Provider) => void; onPrimary?: (provider: import('../contracts/domain').Provider) => void; onQuit?: () => void }} */
+  /** @type {{ providers: { claude: PanelProvider; codex: PanelProvider }; selected: import('../contracts/domain').Provider; primary?: import('../contracts/domain').Provider; refreshing: boolean; nowMs?: number; onRefresh?: (provider: import('../contracts/domain').Provider) => void; onSelect?: (provider: import('../contracts/domain').Provider) => void; onPrimary?: (provider: import('../contracts/domain').Provider) => void; onClose?: () => void; onQuit?: () => void }} */
   let {
     providers,
     selected,
@@ -14,6 +14,7 @@
     onRefresh = () => {},
     onSelect = () => {},
     onPrimary = () => {},
+    onClose = () => {},
     onQuit = () => {},
   } = $props();
   const current = $derived(providers[selected]);
@@ -25,7 +26,14 @@
 
 <section class="usage-panel" aria-label="Usage panel">
   <h2 class="visually-hidden">Usage panel</h2>
-  <header><ProviderTabs {selected} {primary} {onSelect} /></header>
+  <header>
+    <ProviderTabs {selected} {primary} {onSelect} />
+    <button
+      class="close-action"
+      aria-label="Close usage panel"
+      onclick={() => onClose()}>×</button
+    >
+  </header>
   <div class="body">
     {#if current.system === 'loading'}
       <div
@@ -92,6 +100,10 @@
     color: var(--color-text);
   }
   header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-2);
     padding: 0 var(--space-4);
   }
   .body {
@@ -161,6 +173,20 @@
   }
   .tertiary-action:hover,
   .tertiary-action:focus-visible {
+    border-color: var(--color-border);
+    color: var(--color-text);
+  }
+  .close-action {
+    width: 2rem;
+    min-height: 2rem;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--color-text-muted);
+    font-size: 1.25rem;
+    line-height: 1;
+  }
+  .close-action:hover,
+  .close-action:focus-visible {
     border-color: var(--color-border);
     color: var(--color-text);
   }

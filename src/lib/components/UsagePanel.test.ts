@@ -115,6 +115,28 @@ describe('UsagePanel', () => {
     expect(onQuit).toHaveBeenCalledTimes(1);
   });
 
+  it('closes only the panel through its dedicated callback', async () => {
+    const onClose = vi.fn();
+    const onQuit = vi.fn();
+    render(UsagePanel, {
+      props: {
+        providers: bothProviders('active'),
+        selected: 'claude',
+        primary: 'claude',
+        refreshing: false,
+        nowMs: NOW,
+        onClose,
+        onQuit,
+      },
+    });
+
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Close usage panel' }),
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onQuit).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['auth_required' as const, 'Sign in to the Claude CLI: claude login'],
     ['unavailable' as const, 'The Claude CLI is not installed'],

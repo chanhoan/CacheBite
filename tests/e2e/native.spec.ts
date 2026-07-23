@@ -90,7 +90,7 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
 
     await $(
       'main[data-window-label="overlay"] [data-testid="overlay-pointer-surface"]',
-    ).click();
+    ).doubleClick();
     await switchToCacheBiteWindow('panel');
 
     await expect($('section[aria-label="Usage panel"]')).toExist();
@@ -102,7 +102,7 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
       await switchToCacheBiteWindow('overlay');
       await $(
         'main[data-window-label="overlay"] [data-testid="overlay-pointer-surface"]',
-      ).click();
+      ).doubleClick();
       await switchToCacheBiteWindow('panel');
 
       const claudeTab = $('button[role="tab"]=Claude');

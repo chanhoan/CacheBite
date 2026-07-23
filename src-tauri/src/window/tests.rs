@@ -207,10 +207,12 @@ fn native_commands_are_authorized_by_window_label() {
     assert!(command_allowed("overlay", NativeCommand::SavePosition));
     assert!(!command_allowed("overlay", NativeCommand::RefreshProvider));
     assert!(!command_allowed("overlay", NativeCommand::UpdateSettings));
+    assert!(!command_allowed("overlay", NativeCommand::HidePanel));
     assert!(!command_allowed("overlay", NativeCommand::Quit));
     assert!(command_allowed("panel", NativeCommand::UpdateSettings));
     assert!(command_allowed("panel", NativeCommand::GetCollectorMode));
     assert!(command_allowed("panel", NativeCommand::Quit));
+    assert!(command_allowed("panel", NativeCommand::HidePanel));
     assert!(!command_allowed("panel", NativeCommand::SavePosition));
     assert!(!command_allowed("unknown", NativeCommand::ShowPanel));
 }

@@ -3,15 +3,13 @@
   // A mount-scoped timer fired once per component instance, so a replacement
   // bubble inherited the previous bubble's remaining time instead of a full
   // interval. See the bubble `$effect` in App.svelte.
-  /** @type {{ message: string; onDismiss?: () => void; onOpenPanel?: () => void }} */
-  let { message, onDismiss = () => {}, onOpenPanel = () => {} } = $props();
-  const click = () => {
-    onDismiss();
-    onOpenPanel();
-  };
+  /** @type {{ message: string; onDismiss?: () => void }} */
+  let { message, onDismiss = () => {} } = $props();
 </script>
 
-<button class="bubble" aria-label={message} onclick={click}>{message}</button>
+<button class="bubble" aria-label={message} onclick={() => onDismiss()}
+  >{message}</button
+>
 
 <style>
   .bubble {

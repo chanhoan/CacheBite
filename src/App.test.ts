@@ -100,6 +100,7 @@ const fixture = () => {
     startDragging: vi.fn(async () => undefined),
     listenPositionMoved: vi.fn(async () => () => undefined),
     showPanel: vi.fn(async () => undefined),
+    hidePanel: vi.fn(async () => undefined),
     quit: vi.fn(async () => undefined),
   };
   return {
@@ -123,7 +124,7 @@ describe('application composition root', () => {
     window.history.replaceState({}, '', '/');
   });
 
-  it('hydrates overlay, ignores old revisions, and routes click pointer to panel', async () => {
+  it('hydrates overlay and opens the panel only on a circular-surface double-click', async () => {
     const { gateway, emit } = fixture();
     render(App, { props: { gateway, notificationAdapter: notifications } });
     expect(await screen.findByLabelText('CacheBite pet status')).toBeTruthy();
@@ -138,6 +139,8 @@ describe('application composition root', () => {
     const overlay = screen.getByTestId('overlay-pointer-surface');
     await fireEvent.pointerDown(overlay, { clientX: 10, clientY: 10 });
     await fireEvent.pointerUp(overlay, { clientX: 12, clientY: 10 });
+    expect(gateway.showPanel).not.toHaveBeenCalled();
+    await fireEvent.dblClick(overlay);
     expect(gateway.showPanel).toHaveBeenCalledOnce();
     expect(
       screen.getByLabelText('CacheBite').getAttribute('data-platform'),
@@ -629,6 +632,23 @@ describe('application composition root', () => {
     }
   });
 
+  it('dismisses a clicked speech bubble without opening the panel', async () => {
+    const { gateway, emit } = fixture();
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+    await screen.findByLabelText('CacheBite pet status');
+    emit(active('claude', 2, 100));
+    const bubble = await screen.findByRole('button', {
+      name: '5-hour usage is exhausted',
+    });
+
+    await fireEvent.click(bubble);
+
+    expect(
+      screen.queryByRole('button', { name: '5-hour usage is exhausted' }),
+    ).toBeNull();
+    expect(gateway.showPanel).not.toHaveBeenCalled();
+  });
+
   it('ages a fresh snapshot into stale without any new provider event', async () => {
     window.history.replaceState({}, '', '/?window=panel');
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -689,6 +709,18 @@ describe('application composition root', () => {
       await screen.findByRole('button', { name: 'Quit CacheBite' }),
     );
     expect(gateway.quit).toHaveBeenCalledOnce();
+  });
+
+  it('routes the panel close button without quitting CacheBite', async () => {
+    window.history.replaceState({}, '', '/?window=panel');
+    const { gateway } = fixture();
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Close usage panel' }),
+    );
+    expect(gateway.hidePanel).toHaveBeenCalledOnce();
+    expect(gateway.quit).not.toHaveBeenCalled();
   });
 
   it('surfaces unavailable platform capabilities and disables autostart', async () => {

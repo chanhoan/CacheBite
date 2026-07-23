@@ -137,10 +137,12 @@ describe('typed Tauri gateway', () => {
     });
     await tauriGateway.refreshProvider('codex');
     await tauriGateway.showPanel();
+    await tauriGateway.hidePanel();
     expect(invoked).toHaveBeenCalledWith('refresh_provider', {
       provider: 'codex',
     });
     expect(invoked).toHaveBeenCalledWith('show_panel', {});
+    expect(invoked).toHaveBeenCalledWith('hide_panel', {});
   });
 
   it('converts every move with its current scale factor and replaces the save timer', async () => {

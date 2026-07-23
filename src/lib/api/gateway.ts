@@ -85,6 +85,8 @@ export interface AppGateway {
   ): Promise<() => void>;
   showPanel(): Promise<void>;
   /** Authorized for the `panel` window only (`window::command_allowed`). */
+  hidePanel(): Promise<void>;
+  /** Authorized for the `panel` window only (`window::command_allowed`). */
   quit(): Promise<void>;
 }
 
@@ -232,5 +234,6 @@ export const tauriGateway: AppGateway = {
     };
   },
   showPanel: () => invokeNative('show_panel'),
+  hidePanel: () => invokeNative('hide_panel'),
   quit: () => invokeNative('quit'),
 };
