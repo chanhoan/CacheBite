@@ -100,6 +100,7 @@ const fixture = () => {
     startDragging: vi.fn(async () => undefined),
     listenPositionMoved: vi.fn(async () => () => undefined),
     showPanel: vi.fn(async () => undefined),
+    resizePanel: vi.fn(async () => undefined),
     hidePanel: vi.fn(async () => undefined),
     quit: vi.fn(async () => undefined),
   };
@@ -121,6 +122,7 @@ const notifications: NotificationAdapter = {
 describe('application composition root', () => {
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
     window.history.replaceState({}, '', '/');
   });
 
@@ -359,26 +361,102 @@ describe('application composition root', () => {
     expect(gateway.startDragging).toHaveBeenCalledOnce();
   });
 
-  it('hydrates panel history and persists settings through typed gateway', async () => {
+  it('persists settings through the typed gateway from the settings view', async () => {
     window.history.replaceState({}, '', '/?window=panel');
     const { gateway } = fixture();
     render(App, { props: { gateway, notificationAdapter: notifications } });
     expect(await screen.findByText('Pro')).toBeTruthy();
-    expect(
-      screen.getByRole('img', { name: '5-hour usage history' }),
-    ).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     await fireEvent.click(screen.getByLabelText('Native notifications'));
     await waitFor(() => expect(gateway.updateSettings).toHaveBeenCalled());
     expect(gateway.getPetPackage).not.toHaveBeenCalled();
   });
 
-  it('makes a provider primary when its tab is selected', async () => {
+  it('opens the settings view from the panel and returns to usage', async () => {
+    window.history.replaceState({}, '', '/?window=panel');
+    const { gateway } = fixture();
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+    await screen.findByText('Pro');
+    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(screen.getByLabelText('Native notifications')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: '← Back' }));
+    expect(await screen.findByText('Pro')).toBeTruthy();
+    expect(screen.queryByLabelText('Native notifications')).toBeNull();
+  });
+
+  it('resizes to rendered content, dedupes success, and retries failure', async () => {
+    window.history.replaceState({}, '', '/?window=panel');
+    let notifyResize = () => {};
+    const disconnect = vi.fn();
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          notifyResize = () => callback([], this);
+        }
+
+        observe() {}
+        unobserve() {}
+        disconnect() {
+          disconnect();
+        }
+      },
+    );
+    const { gateway } = fixture();
+    const resizePanel = vi.mocked(gateway.resizePanel);
+    let measuredHeight = 383.2;
+
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+    await screen.findByLabelText('Usage panel');
+    const shell = screen.getByLabelText('CacheBite');
+    vi.spyOn(shell, 'getBoundingClientRect').mockReturnValue({
+      bottom: 384,
+      get height() {
+        return measuredHeight;
+      },
+      left: 0,
+      right: 312,
+      top: 0,
+      width: 312,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+
+    notifyResize();
+
+    await waitFor(() => expect(resizePanel).toHaveBeenCalledWith(384));
+    notifyResize();
+    expect(resizePanel).toHaveBeenCalledOnce();
+
+    resizePanel.mockRejectedValueOnce(new Error('transient resize failure'));
+    measuredHeight = 384.2;
+    notifyResize();
+    await waitFor(() => expect(resizePanel).toHaveBeenCalledTimes(2));
+    await Promise.resolve();
+    notifyResize();
+    await waitFor(() => expect(resizePanel).toHaveBeenCalledTimes(3));
+    expect(resizePanel).toHaveBeenLastCalledWith(385);
+    expect(disconnect).not.toHaveBeenCalled();
+  });
+
+  it('changes primary only when Set as primary is clicked', async () => {
     window.history.replaceState({}, '', '/?window=panel');
     const { gateway } = fixture();
     render(App, { props: { gateway, notificationAdapter: notifications } });
 
     await fireEvent.click(await screen.findByRole('tab', { name: 'Codex' }));
+    expect(gateway.updateSettings).not.toHaveBeenCalled();
+    expect(screen.getByRole('tab', { name: 'Claude (primary)' })).toBeTruthy();
+    expect(
+      screen.getByRole('tab', { name: 'Codex' }).getAttribute('aria-selected'),
+    ).toBe('true');
 
+    const setPrimary = screen.getByRole('button', {
+      name: 'Set as primary',
+    }) as HTMLButtonElement;
+    expect(setPrimary.disabled).toBe(false);
+    await fireEvent.click(setPrimary);
     await waitFor(() =>
       expect(gateway.updateSettings).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -388,47 +466,29 @@ describe('application composition root', () => {
       ),
     );
     expect(screen.getByRole('tab', { name: 'Codex (primary)' })).toBeTruthy();
+    expect(setPrimary.disabled).toBe(true);
   });
 
-  it('refreshes panel history after live provider revisions', async () => {
+  it('restores the previous primary when saving a primary change fails', async () => {
     window.history.replaceState({}, '', '/?window=panel');
-    const { gateway, emit } = fixture();
-    render(App, { props: { gateway, notificationAdapter: notifications } });
-    await screen.findByText('Pro');
-    emit(active('claude', 2, 95));
-    await waitFor(() => expect(gateway.getHistory).toHaveBeenCalledTimes(2));
-  });
-
-  it('coalesces a burst of live history refreshes into one follow-up request', async () => {
-    window.history.replaceState({}, '', '/?window=panel');
-    const { gateway, emit } = fixture();
-    let resolveLiveHistory!: (
-      history: Awaited<ReturnType<AppGateway['getHistory']>>,
-    ) => void;
-    vi.mocked(gateway.getHistory)
-      .mockResolvedValueOnce({ claude: [], codex: [] })
-      .mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            resolveLiveHistory = resolve;
-          }),
-      )
-      .mockResolvedValue({ claude: [], codex: [] });
-
-    render(App, { props: { gateway, notificationAdapter: notifications } });
-    await screen.findByText('Pro');
-    await waitFor(() =>
-      expect(gateway.listenProviderStates).toHaveBeenCalledOnce(),
+    const { gateway } = fixture();
+    vi.mocked(gateway.updateSettings).mockRejectedValueOnce(
+      new Error('settings unavailable'),
     );
+    render(App, { props: { gateway, notificationAdapter: notifications } });
 
-    emit(active('claude', 2, 92));
-    await waitFor(() => expect(gateway.getHistory).toHaveBeenCalledTimes(2));
-    emit(active('claude', 3, 93));
-    emit(active('claude', 4, 94));
-    expect(gateway.getHistory).toHaveBeenCalledTimes(2);
+    await fireEvent.click(await screen.findByRole('tab', { name: 'Codex' }));
+    const setPrimary = screen.getByRole('button', {
+      name: 'Set as primary',
+    }) as HTMLButtonElement;
+    await fireEvent.click(setPrimary);
 
-    resolveLiveHistory({ claude: [], codex: [] });
-    await waitFor(() => expect(gateway.getHistory).toHaveBeenCalledTimes(3));
+    await screen.findByText('Settings could not be saved');
+    expect(screen.getByRole('tab', { name: 'Claude (primary)' })).toBeTruthy();
+    expect(
+      screen.getByRole('tab', { name: 'Codex' }).getAttribute('aria-selected'),
+    ).toBe('true');
+    expect(setPrimary.disabled).toBe(false);
   });
 
   it('reconciles persisted notification opt-in with granted permission', async () => {
@@ -439,6 +499,8 @@ describe('application composition root', () => {
       notificationsEnabled: true,
     });
     render(App, { props: { gateway, notificationAdapter: notifications } });
+    await screen.findByText('Pro');
+    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     expect(
       (
         (await screen.findByLabelText(
@@ -487,7 +549,9 @@ describe('application composition root', () => {
       permission: vi.fn(async () => 'denied' as const),
     };
     render(App, { props: { gateway, notificationAdapter: denied } });
-    await fireEvent.click(await screen.findByLabelText('Native notifications'));
+    await screen.findByText('Pro');
+    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    await fireEvent.click(screen.getByLabelText('Native notifications'));
     expect(
       await screen.findByText('Notification permission denied'),
     ).toBeTruthy();
@@ -497,6 +561,23 @@ describe('application composition root', () => {
           .checked,
       ).toBe(false),
     );
+  });
+
+  it('pins the appearance theme and persists it', async () => {
+    window.history.replaceState({}, '', '/?window=panel');
+    const { gateway } = fixture();
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+    await screen.findByText('Pro');
+    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    await fireEvent.change(await screen.findByLabelText('Appearance'), {
+      target: { value: 'dark' },
+    });
+    await waitFor(() =>
+      expect(document.documentElement.getAttribute('data-theme')).toBe('dark'),
+    );
+    expect(localStorage.getItem('cachebite:theme')).toBe('dark');
+    document.documentElement.removeAttribute('data-theme');
+    localStorage.removeItem('cachebite:theme');
   });
 
   it('applies rapid settings responses in request order', async () => {
@@ -519,11 +600,13 @@ describe('application composition root', () => {
         return settings;
       });
     render(App, { props: { gateway, notificationAdapter: notifications } });
+    await screen.findByText('Pro');
+    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     const bubbles = (await screen.findByLabelText(
       'Speech bubbles',
     )) as HTMLInputElement;
     const secondary = screen.getByLabelText(
-      'Include secondary provider notifications',
+      'Secondary provider notifications',
     ) as HTMLInputElement;
 
     await fireEvent.click(bubbles);
@@ -553,6 +636,8 @@ describe('application composition root', () => {
       .mockRejectedValueOnce(new Error('/private/settings.json secret payload'))
       .mockImplementationOnce(async (settings) => settings);
     render(App, { props: { gateway, notificationAdapter: notifications } });
+    await screen.findByText('Pro');
+    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     const nativeNotifications = (await screen.findByLabelText(
       'Native notifications',
     )) as HTMLInputElement;
@@ -562,7 +647,7 @@ describe('application composition root', () => {
     await waitFor(() => expect(nativeNotifications.checked).toBe(false));
 
     const secondary = screen.getByLabelText(
-      'Include secondary provider notifications',
+      'Secondary provider notifications',
     ) as HTMLInputElement;
     await fireEvent.click(secondary);
 
@@ -700,25 +785,12 @@ describe('application composition root', () => {
     ).toBeTruthy();
   });
 
-  it('routes the panel quit button to the native command', async () => {
+  it('closes the panel through the Quit button without quitting CacheBite', async () => {
     window.history.replaceState({}, '', '/?window=panel');
     const { gateway } = fixture();
     render(App, { props: { gateway, notificationAdapter: notifications } });
 
-    await fireEvent.click(
-      await screen.findByRole('button', { name: 'Quit CacheBite' }),
-    );
-    expect(gateway.quit).toHaveBeenCalledOnce();
-  });
-
-  it('routes the panel close button without quitting CacheBite', async () => {
-    window.history.replaceState({}, '', '/?window=panel');
-    const { gateway } = fixture();
-    render(App, { props: { gateway, notificationAdapter: notifications } });
-
-    await fireEvent.click(
-      await screen.findByRole('button', { name: 'Close usage panel' }),
-    );
+    await fireEvent.click(await screen.findByRole('button', { name: 'Quit' }));
     expect(gateway.hidePanel).toHaveBeenCalledOnce();
     expect(gateway.quit).not.toHaveBeenCalled();
   });
@@ -743,6 +815,7 @@ describe('application composition root', () => {
       await screen.findByText('fullscreen detection unavailable'),
     ).toBeTruthy();
     expect(screen.getByText('autostart unavailable')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     expect(
       (screen.getByLabelText('Start at login') as HTMLInputElement).disabled,
     ).toBe(true);

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { absoluteShort, relativeFromNow } from '../format/time';
+  import { relativeFromNow } from '../format/time';
   import type { Severity } from '../state/engine';
 
   let {
@@ -7,7 +7,6 @@
     window: usage,
     stale = false,
     nowMs = Date.now(),
-    resetFormat = 'relative',
   }: {
     label: string;
     window: {
@@ -17,24 +16,14 @@
     };
     stale?: boolean;
     nowMs?: number;
-    /** How the reset time reads. Chosen by the caller, not inferred from copy. */
-    resetFormat?: 'absolute' | 'relative';
   } = $props();
   const percent = $derived(
     usage.usedPercent === null || !Number.isFinite(usage.usedPercent)
       ? 0
       : Math.min(100, Math.max(0, usage.usedPercent)),
   );
-  // A reset days out reads better as a wall-clock time than as a countdown, and
-  // vice versa for a short window — but that is the caller's call, so it comes
-  // in as `resetFormat` rather than being read off the display label. An
-  // unparsable timestamp yields null and the <time> element is dropped entirely.
   const resetLabel = $derived(
-    usage.resetsAt === null
-      ? null
-      : resetFormat === 'absolute'
-        ? absoluteShort(usage.resetsAt)
-        : relativeFromNow(usage.resetsAt, nowMs),
+    usage.resetsAt === null ? null : relativeFromNow(usage.resetsAt, nowMs),
   );
 </script>
 
@@ -63,7 +52,7 @@
     ></div>
   </div>
   {#if usage.resetsAt && resetLabel}<time datetime={usage.resetsAt}
-      >{resetFormat === 'absolute' ? 'resets' : 'resets in'} {resetLabel}</time
+      >resets in {resetLabel}</time
     >{/if}
 </section>
 

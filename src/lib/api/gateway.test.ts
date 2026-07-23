@@ -145,6 +145,29 @@ describe('typed Tauri gateway', () => {
     expect(invoked).toHaveBeenCalledWith('hide_panel', {});
   });
 
+  it('resizes the panel window to its measured content height', async () => {
+    const invoked = vi.fn();
+    mockIPC((command, args) => invoked(command, args));
+
+    await tauriGateway.resizePanel(384);
+
+    expect(invoked).toHaveBeenCalledOnce();
+    expect(invoked).toHaveBeenCalledWith('resize_panel', { height: 384 });
+  });
+
+  it.each([0, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects invalid panel height %s without resizing the window',
+    async (height) => {
+      const invoked = vi.fn();
+      mockIPC((command, args) => invoked(command, args));
+
+      await expect(tauriGateway.resizePanel(height)).rejects.toThrow(
+        'Panel height must be a positive finite number',
+      );
+      expect(invoked).not.toHaveBeenCalled();
+    },
+  );
+
   it('converts every move with its current scale factor and replaces the save timer', async () => {
     vi.useFakeTimers();
     const invoked = vi.fn();

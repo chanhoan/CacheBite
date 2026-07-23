@@ -4,7 +4,7 @@
   import { capturedAgo } from '../format/time.js';
   import { systemGuidance } from './systemGuidance.js';
   /** @typedef {import('./panelModels').PanelProviderModel} PanelProvider */
-  /** @type {{ providers: { claude: PanelProvider; codex: PanelProvider }; selected: import('../contracts/domain').Provider; primary?: import('../contracts/domain').Provider; refreshing: boolean; nowMs?: number; onRefresh?: (provider: import('../contracts/domain').Provider) => void; onSelect?: (provider: import('../contracts/domain').Provider) => void; onPrimary?: (provider: import('../contracts/domain').Provider) => void; onClose?: () => void; onQuit?: () => void }} */
+  /** @type {{ providers: { claude: PanelProvider; codex: PanelProvider }; selected: import('../contracts/domain').Provider; primary?: import('../contracts/domain').Provider; refreshing: boolean; nowMs?: number; onRefresh?: (provider: import('../contracts/domain').Provider) => void; onSelect?: (provider: import('../contracts/domain').Provider) => void; onPrimary?: (provider: import('../contracts/domain').Provider) => void; onSettings?: () => void; onClose?: () => void }} */
   let {
     providers,
     selected,
@@ -14,8 +14,8 @@
     onRefresh = () => {},
     onSelect = () => {},
     onPrimary = () => {},
+    onSettings = () => {},
     onClose = () => {},
-    onQuit = () => {},
   } = $props();
   const current = $derived(providers[selected]);
   const guidance = $derived(systemGuidance(current.system, selected));
@@ -28,11 +28,6 @@
   <h2 class="visually-hidden">Usage panel</h2>
   <header>
     <ProviderTabs {selected} {primary} {onSelect} />
-    <button
-      class="close-action"
-      aria-label="Close usage panel"
-      onclick={() => onClose()}>×</button
-    >
   </header>
   <div class="body">
     {#if current.system === 'loading'}
@@ -60,7 +55,6 @@
         window={current.weekly}
         stale={current.stale}
         {nowMs}
-        resetFormat="absolute"
       />
       <small class:stale={current.stale} class="freshness"
         >● {current.stale
@@ -69,7 +63,7 @@
             >&nbsp;· captured <time datetime={current.capturedAt}
               >{captured}</time
             ></span
-          >{/if} · {current.source}{current.isCached ? ' · cached' : ''}</small
+          >{/if}</small
       >
     {/if}
   </div>
@@ -78,19 +72,23 @@
        gap, and collapsed to zero height by having no line box. -->
   <p class="guidance" role="status">{guidance ?? ''}</p>
   <footer>
-    <button
-      class="primary-action"
-      disabled={refreshing}
-      onclick={() => onRefresh(selected)}>Refresh now</button
-    >
-    <button
-      class="secondary-action"
-      disabled={selected === primary}
-      onclick={() => onPrimary(selected)}>Set as primary</button
-    >
-    <button class="tertiary-action" onclick={() => onQuit()}
-      >Quit CacheBite</button
-    >
+    <div class="footer-row">
+      <button
+        class="primary-action"
+        disabled={refreshing}
+        onclick={() => onRefresh(selected)}>Refresh now</button
+      >
+      <button
+        class="secondary-action"
+        disabled={selected === primary}
+        onclick={() => onPrimary(selected)}>Set as primary</button
+      >
+    </div>
+    <div class="footer-row">
+      <button class="ghost-action" onclick={() => onSettings()}>Settings</button
+      >
+      <button class="ghost-action quit" onclick={() => onClose()}>Quit</button>
+    </div>
   </footer>
 </section>
 
@@ -100,11 +98,7 @@
     color: var(--color-text);
   }
   header {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: var(--space-2);
-    padding: 0 var(--space-4);
+    padding: var(--space-3) var(--space-4) 0;
   }
   .body {
     display: grid;
@@ -125,8 +119,11 @@
     text-transform: capitalize;
   }
   .freshness {
+    overflow: hidden;
     color: var(--sev-ok);
     font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    white-space: nowrap;
   }
   .freshness.stale {
     color: var(--color-text-faint);
@@ -138,10 +135,14 @@
   }
   footer {
     display: grid;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4) 0.875rem;
+    border-top: 1px solid var(--color-border);
+  }
+  .footer-row {
+    display: grid;
     grid-template-columns: 1fr 1fr;
     gap: var(--space-2);
-    padding: var(--space-3) var(--space-4) var(--space-4);
-    border-top: 1px solid var(--color-border);
   }
   button {
     min-height: 2.25rem;
@@ -154,41 +155,41 @@
     cursor: default;
     opacity: 0.45;
   }
+  /* UI-plan canonical panel: Refresh is a solid high-contrast button (near-black
+     on light, inverted on dark), Set as primary is a filled surface with a
+     border. Mapped to tokens so both themes stay consistent. */
   .primary-action {
-    border: 1px solid var(--color-accent);
-    background: var(--color-accent);
-    color: var(--badge-icon);
+    border: 1px solid var(--color-text);
+    background: var(--color-text);
+    color: var(--color-surface);
+  }
+  .primary-action:not(:disabled):hover,
+  .primary-action:focus-visible {
+    opacity: 0.88;
   }
   .secondary-action {
     border: 1px solid var(--color-border);
-    background: transparent;
+    background: var(--color-surface);
     color: var(--color-text);
   }
-  .tertiary-action {
-    grid-column: 1 / -1;
+  .secondary-action:not(:disabled):hover,
+  .secondary-action:focus-visible {
+    background: var(--color-surface-sunken);
+  }
+  .ghost-action {
+    min-height: 1.875rem;
     border: 1px solid transparent;
     background: transparent;
     color: var(--color-text-muted);
     font-weight: 500;
   }
-  .tertiary-action:hover,
-  .tertiary-action:focus-visible {
-    border-color: var(--color-border);
+  .ghost-action:hover,
+  .ghost-action:focus-visible {
     color: var(--color-text);
   }
-  .close-action {
-    width: 2rem;
-    min-height: 2rem;
-    border: 1px solid transparent;
-    background: transparent;
-    color: var(--color-text-muted);
-    font-size: 1.25rem;
-    line-height: 1;
-  }
-  .close-action:hover,
-  .close-action:focus-visible {
-    border-color: var(--color-border);
-    color: var(--color-text);
+  .ghost-action.quit:hover,
+  .ghost-action.quit:focus-visible {
+    color: var(--sev-exhausted);
   }
   .guidance {
     padding: 0 var(--space-4);

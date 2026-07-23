@@ -11,7 +11,7 @@
   --color-surface: #ffffff;
   --color-surface-raised: #ffffff;
   --color-surface-sunken: #eceef1;
-  --color-border: #e6e8eb;
+  --color-border: #d0d5dc;
   --color-accent: #3b5bdb;
   --badge-lock: #6b7280;
   --badge-slash: #8a9099;
@@ -27,13 +27,17 @@
   --space-2: 0.5rem;
   --space-3: 0.75rem;
   --space-4: 1rem;
-  --radius-panel: 0.875rem;
   --shadow-panel: 0 0.75rem 2rem rgb(22 25 29 / 18%);
   font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
 }
 
+/* Dark palette. Applied when the OS prefers dark AND the user has not pinned
+   light, or when the user explicitly pins dark. The block is intentionally
+   duplicated across the two selectors: CSS custom properties cannot be shared
+   between selectors without a preprocessor, and light-dark() is avoided for
+   older WebKitGTK compatibility. Keep the two copies in sync. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     --sev-ok: #4ade80;
     --sev-warn: #fbbf24;
     --sev-critical: #fb923c;
@@ -48,4 +52,29 @@
     --color-border: #2e333a;
     --color-accent: #6d8dff;
   }
+}
+
+:root[data-theme='dark'] {
+  --sev-ok: #4ade80;
+  --sev-warn: #fbbf24;
+  --sev-critical: #fb923c;
+  --sev-exhausted: #f87171;
+  --sev-unknown: #4b5563;
+  --color-text: #f3f4f6;
+  --color-text-muted: #9aa0a6;
+  --color-text-faint: #6b7280;
+  --color-surface: #1c1f24;
+  --color-surface-raised: #24282e;
+  --color-surface-sunken: #16191d;
+  --color-border: #2e333a;
+  --color-accent: #6d8dff;
+}
+
+/* Pin the native form-control scheme so checkboxes and <select> popups match
+   the pinned palette instead of the OS preference. */
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
 }

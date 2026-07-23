@@ -12,6 +12,9 @@ describe('relativeFromNow', () => {
     [59 * 60_000, '59m'],
     [60 * 60_000, '1h 0m'],
     [72 * 60_000, '1h 12m'],
+    [(23 * 60 + 59) * 60_000, '23h 59m'],
+    [24 * 60 * 60_000, '1d 0h 0m'],
+    [(6 * 24 * 60 + 22 * 60 + 10) * 60_000, '6d 22h 10m'],
     [-5 * 60_000, 'now'],
   ])('formats %i ms remaining as "%s"', (offsetMs, expected) => {
     expect(relativeFromNow(at(offsetMs), NOW)).toBe(expected);

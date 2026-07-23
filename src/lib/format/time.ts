@@ -12,7 +12,11 @@ function parseTimestamp(isoTimestamp: string): number | null {
 
 function humanizeMinutes(totalMinutes: number): string {
   if (totalMinutes < 60) return `${totalMinutes}m`;
-  return `${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m`;
+  const totalHours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (totalHours < 24) return `${totalHours}h ${minutes}m`;
+  const days = Math.floor(totalHours / 24);
+  return `${days}d ${totalHours % 24}h ${minutes}m`;
 }
 
 /** Time remaining until `isoTimestamp`, for short rolling windows. */

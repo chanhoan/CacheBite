@@ -84,6 +84,8 @@ export interface AppGateway {
     onSaveFailure?: (failure: 'position_save_failed') => void,
   ): Promise<() => void>;
   showPanel(): Promise<void>;
+  /** Keeps the native panel frame fitted to its rendered content. */
+  resizePanel(height: number): Promise<void>;
   /** Authorized for the `panel` window only (`window::command_allowed`). */
   hidePanel(): Promise<void>;
   /** Authorized for the `panel` window only (`window::command_allowed`). */
@@ -234,6 +236,14 @@ export const tauriGateway: AppGateway = {
     };
   },
   showPanel: () => invokeNative('show_panel'),
+  resizePanel: (height) => {
+    if (!Number.isFinite(height) || height <= 0) {
+      return Promise.reject(
+        new Error('Panel height must be a positive finite number'),
+      );
+    }
+    return invokeNative('resize_panel', { height: Math.ceil(height) });
+  },
   hidePanel: () => invokeNative('hide_panel'),
   quit: () => invokeNative('quit'),
 };

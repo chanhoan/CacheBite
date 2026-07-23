@@ -20,7 +20,7 @@ describe('UsageGauge', () => {
     expect(screen.getByText('100%')).toBeTruthy();
   });
 
-  it('renders a wall-clock weekly reset and dims only a stale bar', () => {
+  it('renders a day-aware weekly countdown and dims only a stale bar', () => {
     const { container } = render(UsageGauge, {
       props: {
         label: 'Weekly',
@@ -30,15 +30,13 @@ describe('UsageGauge', () => {
           resetsAt: '2026-07-20T09:00:00Z',
         },
         stale: true,
-        resetFormat: 'absolute',
+        nowMs: Date.parse('2026-07-16T12:00:00Z'),
       },
     });
 
     const time = container.querySelector('time');
-    // The rendered clock follows the runner's zone, so only the machine-readable
-    // attribute and the shape of the label are stable assertions.
     expect(time?.getAttribute('datetime')).toBe('2026-07-20T09:00:00Z');
-    expect(time?.textContent).toMatch(/^resets [A-Z][a-z]{2} \d{2}:\d{2}$/);
+    expect(time?.textContent).toBe('resets in 3d 21h 0m');
     expect(container.querySelector('.gauge-track')?.classList).toContain(
       'stale',
     );

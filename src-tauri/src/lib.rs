@@ -121,6 +121,7 @@ pub fn run() {
             refresh::ipc::refresh_provider,
             refresh::ipc::update_settings,
             refresh::ipc::show_panel,
+            refresh::ipc::resize_panel,
             refresh::ipc::hide_panel,
             refresh::ipc::quit,
         ])

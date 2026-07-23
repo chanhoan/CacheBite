@@ -9,7 +9,10 @@
     aria-selected={selected === 'claude'}
     aria-label={primary === 'claude' ? 'Claude (primary)' : 'Claude'}
     onclick={() => onSelect('claude')}
-    >Claude{#if primary === 'claude'}<span aria-hidden="true">
+    >Claude{#if primary === 'claude'}<span
+        class="primary-star"
+        aria-hidden="true"
+      >
         ★</span
       >{/if}</button
   >
@@ -18,7 +21,10 @@
     aria-selected={selected === 'codex'}
     aria-label={primary === 'codex' ? 'Codex (primary)' : 'Codex'}
     onclick={() => onSelect('codex')}
-    >Codex{#if primary === 'codex'}<span aria-hidden="true">
+    >Codex{#if primary === 'codex'}<span
+        class="primary-star"
+        aria-hidden="true"
+      >
         ★</span
       >{/if}</button
   >
@@ -44,5 +50,10 @@
     border-bottom-color: var(--color-text);
     color: var(--color-text);
     font-weight: 600;
+  }
+  /* UI-plan spec: the primary-provider star is amber, independent of the tab
+     text color (which is muted/near-black). */
+  .primary-star {
+    color: #f59e0b;
   }
 </style>

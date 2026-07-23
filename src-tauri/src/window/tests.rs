@@ -196,6 +196,7 @@ fn autostart_is_idempotent_and_reports_visible_degradation() {
 fn native_commands_are_authorized_by_window_label() {
     assert!(command_allowed("overlay", NativeCommand::GetCollectorMode));
     assert!(command_allowed("overlay", NativeCommand::ShowPanel));
+    assert!(!command_allowed("overlay", NativeCommand::ResizePanel));
     assert!(command_allowed("overlay", NativeCommand::GetProviderStates));
     assert!(command_allowed("overlay", NativeCommand::GetSettings));
     assert!(!command_allowed("overlay", NativeCommand::GetHistory));
@@ -213,6 +214,7 @@ fn native_commands_are_authorized_by_window_label() {
     assert!(command_allowed("panel", NativeCommand::GetCollectorMode));
     assert!(command_allowed("panel", NativeCommand::Quit));
     assert!(command_allowed("panel", NativeCommand::HidePanel));
+    assert!(command_allowed("panel", NativeCommand::ResizePanel));
     assert!(!command_allowed("panel", NativeCommand::SavePosition));
     assert!(!command_allowed("unknown", NativeCommand::ShowPanel));
 }
