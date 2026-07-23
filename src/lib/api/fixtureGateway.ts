@@ -1,5 +1,11 @@
 import type { AppGateway, ProviderBackendStateWire } from './gateway';
 
+const FIXTURE_NOW_MS = Date.now();
+const FIXTURE_CAPTURED_AT = new Date(FIXTURE_NOW_MS).toISOString();
+const FIXTURE_WEEKLY_RESET_AT = new Date(
+  FIXTURE_NOW_MS + (6 * 24 * 60 + 22 * 60 + 10) * 60_000,
+).toISOString();
+
 const provider = (name: 'claude' | 'codex'): ProviderBackendStateWire => ({
   provider: name,
   revision: 1,
@@ -11,8 +17,12 @@ const provider = (name: 'claude' | 'codex'): ProviderBackendStateWire => ({
       window_minutes: 300,
       resets_at: null,
     },
-    weekly: { used_percent: 48, window_minutes: 10_080, resets_at: null },
-    captured_at: '2026-07-17T00:00:00Z',
+    weekly: {
+      used_percent: 48,
+      window_minutes: 10_080,
+      resets_at: FIXTURE_WEEKLY_RESET_AT,
+    },
+    captured_at: FIXTURE_CAPTURED_AT,
     source: name === 'claude' ? 'oauth_api' : 'cli_rpc',
     is_cached: false,
     revision: 1,
@@ -72,5 +82,7 @@ export const rendererFixtureGateway: AppGateway = {
   startDragging: async () => undefined,
   listenPositionMoved: async () => () => undefined,
   showPanel: async () => undefined,
+  resizePanel: async () => undefined,
+  hidePanel: async () => undefined,
   quit: async () => undefined,
 };

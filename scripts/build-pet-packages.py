@@ -5,9 +5,17 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections import deque
 from pathlib import Path
 
-from PIL import Image, ImageChops
+from PIL import Image
+
+try:
+    import numpy as np
+    from scipy import ndimage as ndi
+except ImportError:  # pragma: no cover - fallback for environments without the deps
+    np = None
+    ndi = None
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -22,21 +30,168 @@ STATE_SOURCES = {
 }
 FRAME_COUNT = 4
 FRAME_DURATION_MS = 240
+# Bump when regenerated frame *content* changes without renaming files, so the
+# app force-reinstalls stock pets over stale installed copies (see
+# store::pets::should_preserve_installed).
+PACKAGE_VERSION = 1
 OUTPUT_SIZE = (512, 512)
-WHITE_THRESHOLD = 247
+
+
+def _as_opaque_rgba(source: Path) -> Image.Image:
+    with Image.open(source) as image:
+        return image.convert("RGBA").resize(OUTPUT_SIZE, Image.Resampling.LANCZOS)
+
+
+def _clean_opaque_frame_numpy(rgba: Image.Image) -> Image.Image:
+    pixels = np.asarray(rgba, dtype=np.uint8)
+    rgb = pixels[:, :, :3].astype(np.int16)
+    mn = rgb.min(axis=2)
+    mx = rgb.max(axis=2)
+    chroma = mx - mn
+
+    bg_candidate = (mn >= 232) & (chroma <= 10)
+    labels, _ = ndi.label(bg_candidate)
+
+    if not labels.size:
+        return rgba
+
+    edge_labels = np.unique(
+        np.concatenate(
+            [labels[0, :], labels[-1, :], labels[:, 0], labels[:, -1]]
+        )
+    )
+    background = bg_candidate & np.isin(labels, edge_labels)
+    fringe_zone = ndi.binary_dilation(background, iterations=2) & ~background
+    fringe = fringe_zone & (mn >= 215) & (chroma <= 14)
+
+    alpha = np.full(mn.shape, 255, dtype=np.uint8)
+    alpha[background] = 0
+    if fringe.any():
+        alpha[fringe] = np.clip((245 - mn[fringe]) * 16, 0, 255).astype(np.uint8)
+
+    cleaned = pixels.copy()
+    cleaned[:, :, 3] = alpha
+    return Image.fromarray(cleaned, "RGBA")
+
+
+def _neighbor_indices(index: int, width: int, height: int) -> tuple[int, ...]:
+    row, col = divmod(index, width)
+    neighbors = []
+    if row > 0:
+        neighbors.append(index - width)
+    if row + 1 < height:
+        neighbors.append(index + width)
+    if col > 0:
+        neighbors.append(index - 1)
+    if col + 1 < width:
+        neighbors.append(index + 1)
+    return tuple(neighbors)
+
+
+def _clean_opaque_frame_fallback(rgba: Image.Image) -> Image.Image:
+    width, height = rgba.size
+    source_pixels = list(rgba.get_flattened_data())
+    total = width * height
+
+    def candidate_at(index: int) -> bool:
+        red, green, blue, _ = source_pixels[index]
+        mn = min(red, green, blue)
+        chroma = max(red, green, blue) - mn
+        return mn >= 232 and chroma <= 10
+
+    bg_candidate = bytearray(total)
+    for index in range(total):
+        bg_candidate[index] = 1 if candidate_at(index) else 0
+
+    background = bytearray(total)
+    queue: deque[int] = deque()
+
+    for col in range(width):
+        for index in (col, (height - 1) * width + col):
+            if bg_candidate[index] and not background[index]:
+                background[index] = 1
+                queue.append(index)
+
+    for row in range(height):
+        for index in (row * width, row * width + (width - 1)):
+            if bg_candidate[index] and not background[index]:
+                background[index] = 1
+                queue.append(index)
+
+    while queue:
+        index = queue.popleft()
+        for neighbor in _neighbor_indices(index, width, height):
+            if bg_candidate[neighbor] and not background[neighbor]:
+                background[neighbor] = 1
+                queue.append(neighbor)
+
+    dilated = bytearray(background)
+    frontier = bytearray(background)
+    for _ in range(2):
+        next_frontier = bytearray(total)
+        for index, is_set in enumerate(frontier):
+            if not is_set:
+                continue
+            for neighbor in _neighbor_indices(index, width, height):
+                if not dilated[neighbor]:
+                    dilated[neighbor] = 1
+                    next_frontier[neighbor] = 1
+        frontier = next_frontier
+
+    cleaned_pixels = []
+    for index, (red, green, blue, alpha) in enumerate(source_pixels):
+        if background[index]:
+            cleaned_pixels.append((red, green, blue, 0))
+            continue
+
+        if dilated[index]:
+            mn = min(red, green, blue)
+            chroma = max(red, green, blue) - mn
+            if mn >= 215 and chroma <= 14:
+                cleaned_pixels.append(
+                    (
+                        red,
+                        green,
+                        blue,
+                        max(0, min(255, (245 - mn) * 16)),
+                    )
+                )
+                continue
+
+        cleaned_pixels.append((red, green, blue, alpha))
+
+    cleaned = Image.new("RGBA", (width, height))
+    cleaned.putdata(cleaned_pixels)
+    return cleaned
+
+
+def clean_opaque_frame(rgba: Image.Image) -> Image.Image:
+    if np is not None and ndi is not None:
+        return _clean_opaque_frame_numpy(rgba)
+    return _clean_opaque_frame_fallback(rgba)
 
 
 def keyed_frame(source: Path) -> Image.Image:
-    """Resize a source frame and make near-white pixels transparent."""
-    with Image.open(source) as image:
-        rgba = image.convert("RGBA").resize(OUTPUT_SIZE, Image.Resampling.LANCZOS)
-    red, green, blue, alpha = rgba.split()
-    threshold = lambda value: 255 if value >= WHITE_THRESHOLD else 0
-    near_white = ImageChops.multiply(
-        ImageChops.multiply(red.point(threshold), green.point(threshold)),
-        blue.point(threshold),
-    )
-    return Image.merge("RGBA", (red, green, blue, ImageChops.subtract(alpha, near_white)))
+    """Resize a source frame and clean edge-connected bright backgrounds."""
+    rgba = _as_opaque_rgba(source)
+    if rgba.getchannel("A").getextrema() != (255, 255):
+        return rgba
+    return clean_opaque_frame(rgba)
+
+
+def iter_source_frames() -> list[Path]:
+    sources = []
+    for source in sorted(SOURCE_ROOT.rglob("*.png")):
+        relative = source.relative_to(SOURCE_ROOT).parts
+        if relative[:2] == ("cat", "critical"):
+            continue
+        sources.append(source)
+    return sources
+
+
+def cleanup_source_frames() -> None:
+    for source in iter_source_frames():
+        keyed_frame(source).save(source, format="PNG", optimize=True)
 
 
 def animation(package_id: str, state: str, source_state: str) -> dict[str, object]:
@@ -71,6 +226,7 @@ def build_package(package_id: str, source_pet: str) -> None:
     manifest = {
         "id": package_id,
         "displayName": package_id.title(),
+        "version": PACKAGE_VERSION,
         "defaultSize": {"width": 128, "height": 128},
         "animations": {
             state: animation(package_id, state, source_state)
@@ -84,6 +240,7 @@ def build_package(package_id: str, source_pet: str) -> None:
 
 
 def main() -> None:
+    cleanup_source_frames()
     for package_id, source_pet in PET_SOURCES.items():
         build_package(package_id, source_pet)
 

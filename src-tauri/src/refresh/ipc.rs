@@ -88,6 +88,7 @@ pub enum IpcError {
     Forbidden,
     ServiceUnavailable,
     InvalidSettings,
+    InvalidPanelSize,
     PersistenceUnavailable,
     PanelUnavailable,
 }
@@ -241,10 +242,18 @@ pub fn show_panel(window: tauri::WebviewWindow, app: AppHandle) -> Result<(), Ip
     let panel = app
         .get_webview_window("panel")
         .ok_or(IpcError::PanelUnavailable)?;
+    position_panel(&window, &panel)?;
+    panel.show().map_err(|_| IpcError::PanelUnavailable)
+}
+
+fn position_panel(
+    anchor: &tauri::WebviewWindow,
+    panel: &tauri::WebviewWindow,
+) -> Result<(), IpcError> {
     if let (Ok(Some(monitor)), Ok(position), Ok(pet_size), Ok(panel_size)) = (
-        window.current_monitor(),
-        window.outer_position(),
-        window.outer_size(),
+        anchor.current_monitor(),
+        anchor.outer_position(),
+        anchor.outer_size(),
         panel.outer_size(),
     ) {
         let monitor_position = monitor.position();
@@ -275,7 +284,35 @@ pub fn show_panel(window: tauri::WebviewWindow, app: AppHandle) -> Result<(), Ip
             ))
             .map_err(|_| IpcError::PanelUnavailable)?;
     }
-    panel.show().map_err(|_| IpcError::PanelUnavailable)
+    Ok(())
+}
+
+#[tauri::command]
+pub fn resize_panel(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+    height: f64,
+) -> Result<(), IpcError> {
+    authorize(&window, NativeCommand::ResizePanel)?;
+    if !height.is_finite() || height <= 0.0 {
+        return Err(IpcError::InvalidPanelSize);
+    }
+    let panel = app
+        .get_webview_window("panel")
+        .ok_or(IpcError::PanelUnavailable)?;
+    panel
+        .set_size(tauri::LogicalSize::new(312.0, height.ceil()))
+        .map_err(|_| IpcError::PanelUnavailable)?;
+    let overlay = app
+        .get_webview_window("overlay")
+        .ok_or(IpcError::PanelUnavailable)?;
+    position_panel(&overlay, &panel)
+}
+
+#[tauri::command]
+pub fn hide_panel(window: tauri::WebviewWindow) -> Result<(), IpcError> {
+    authorize(&window, NativeCommand::HidePanel)?;
+    window.hide().map_err(|_| IpcError::PanelUnavailable)
 }
 
 #[tauri::command]

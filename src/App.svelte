@@ -4,20 +4,24 @@
   import PetOverlay from './lib/components/PetOverlay.svelte';
   import UsagePanel from './lib/components/UsagePanel.svelte';
   import SettingsPanel from './lib/components/SettingsPanel.svelte';
-  import HistoryGraph from './lib/components/HistoryGraph.svelte';
   import SpeechBubble from './lib/components/SpeechBubble.svelte';
   import {
     tauriGateway,
     type AppGateway,
     type AppSettings,
     type CollectorModeDiagnostic,
-    type HistoryModels,
     type PlatformCapabilities,
     type ProviderBackendStateWire,
   } from './lib/api/gateway';
   import { rendererFixtureGateway } from './lib/api/fixtureGateway';
   import { fromProviderUiSnapshotWire } from './lib/api/providerSnapshot';
   import { nativeNotificationAdapter } from './lib/api/notificationAdapter';
+  import {
+    applyThemePreference,
+    loadThemePreference,
+    persistThemePreference,
+    type ThemePreference,
+  } from './lib/state/theme';
   import { createProvidersStore } from './lib/stores/providers';
   import { createSettingsStore } from './lib/stores/settings';
   import { createInteractionStore } from './lib/stores/interaction';
@@ -29,7 +33,6 @@
   import type { Provider } from './lib/contracts/domain';
   import {
     beginPointer,
-    releasePointer,
     updatePointer,
     type PetPointerState,
   } from './lib/interaction/petPointer';
@@ -87,8 +90,16 @@
     secondaryNotificationsEnabled: false,
     logicalPosition: { x: 0, y: 0 },
   });
-  let history = $state<HistoryModels>({ claude: [], codex: [] });
-  let historyWindow = $state<'session' | 'weekly'>('session');
+  let showSettings = $state(false);
+  let themePreference = $state<ThemePreference>(
+    loadThemePreference(globalThis.localStorage),
+  );
+  const changeTheme = (preference: ThemePreference) => {
+    themePreference = preference;
+    persistThemePreference(globalThis.localStorage, preference);
+    applyThemePreference(document.documentElement, preference);
+  };
+  let panelShell = $state<HTMLElement | null>(null);
   let pointer = $state<PetPointerState | null>(null);
   let petPackage = $state<{
     manifest: PetManifest;
@@ -115,8 +126,6 @@
   let settingsSaveFailed = $state(false);
   let positionSaveFailed = $state(false);
   let notificationQueue: Promise<void> = Promise.resolve();
-  let historyReloadInFlight = false;
-  let historyReloadDirty = false;
   let settingsQueue: Promise<void> = Promise.resolve();
   let unlisten: (() => void) | undefined;
   let unlistenPosition: (() => void) | undefined;
@@ -155,32 +164,6 @@
       });
     notificationQueue = operation.catch(() => undefined);
     return operation.then(() => result);
-  };
-
-  const refreshHistory = () => {
-    if (windowLabel !== 'panel') return;
-    if (historyReloadInFlight) {
-      historyReloadDirty = true;
-      return;
-    }
-    historyReloadInFlight = true;
-    const attempt = startupAttempt;
-    void (async () => {
-      try {
-        do {
-          historyReloadDirty = false;
-          const loadedHistory = await gateway.getHistory().catch(() => null);
-          if (!mounted || attempt !== startupAttempt) return;
-          if (loadedHistory) history = loadedHistory;
-        } while (historyReloadDirty && mounted && attempt === startupAttempt);
-      } finally {
-        historyReloadInFlight = false;
-        if (historyReloadDirty && mounted && attempt === startupAttempt) {
-          historyReloadDirty = false;
-          refreshHistory();
-        }
-      }
-    })();
   };
 
   const statusUpdate = (wire: ProviderBackendStateWire) => {
@@ -232,7 +215,7 @@
     });
   };
 
-  const consume = (wire: ProviderBackendStateWire, live = false) => {
+  const consume = (wire: ProviderBackendStateWire) => {
     const events = statusUpdate(wire);
     for (const event of events) {
       interactionStore.handleBubble(event, {
@@ -252,7 +235,6 @@
         ),
       );
     }
-    if (live) refreshHistory();
   };
 
   const callCleanup = (cleanup: (() => void) | undefined) => {
@@ -298,7 +280,7 @@
     try {
       const providerUnlisten = await traceAsync(
         'listenProviderStates',
-        gateway.listenProviderStates((state) => consume(state, true)),
+        gateway.listenProviderStates((state) => consume(state)),
       );
       if (!mounted || attempt !== startupAttempt) {
         callCleanup(providerUnlisten);
@@ -380,17 +362,13 @@
         }
       }
       settingsStore.replace(toSettingsStoreState(appSettings));
-      const [, loadedHistory, loadedCapabilities] = await Promise.all([
+      const [, loadedCapabilities] = await Promise.all([
         windowLabel === 'overlay'
           ? traceAsync('loadPetPackage', loadPetPackage())
           : Promise.resolve(),
-        windowLabel === 'panel'
-          ? gateway.getHistory().catch(() => ({ claude: [], codex: [] }))
-          : Promise.resolve({ claude: [], codex: [] }),
         gateway.getPlatformCapabilities().catch(() => null),
       ]);
       if (!mounted || attempt !== startupAttempt) return;
-      history = loadedHistory;
       platformCapabilities = loadedCapabilities;
       consume(states.claude);
       consume(states.codex);
@@ -420,6 +398,29 @@
       nowMs = Date.now();
     }, CLOCK_TICK_MS);
     return () => window.clearInterval(ticker);
+  });
+
+  $effect(() => {
+    if (
+      windowLabel !== 'panel' ||
+      !panelShell ||
+      typeof ResizeObserver === 'undefined'
+    ) {
+      return;
+    }
+    let lastHeight = 0;
+    const resize = () => {
+      const height = Math.ceil(panelShell?.getBoundingClientRect().height ?? 0);
+      if (height <= 0 || height === lastHeight) return;
+      lastHeight = height;
+      void gateway.resizePanel(height).catch((error) => {
+        if (lastHeight === height) lastHeight = 0;
+        trace('panel-resize:error', error);
+      });
+    };
+    const observer = new ResizeObserver(resize);
+    observer.observe(panelShell);
+    return () => observer.disconnect();
   });
 
   // Contract §7.1-4: the bubble self-dismisses after BUBBLE_DISMISS_MS. The
@@ -546,6 +547,11 @@
     return operation;
   };
   const pointerDown = (event: PointerEvent) => {
+    (
+      event.currentTarget as EventTarget & {
+        setPointerCapture?: (pointerId: number) => void;
+      }
+    ).setPointerCapture?.(event.pointerId);
     pointer = beginPointer({ x: event.clientX, y: event.clientY });
   };
   const pointerMove = (event: PointerEvent) => {
@@ -557,16 +563,21 @@
   };
   const pointerUp = (event: PointerEvent) => {
     if (!pointer) return;
-    const completed = releasePointer(
-      updatePointer(pointer, { x: event.clientX, y: event.clientY }),
-    );
+    const surface = event.currentTarget as EventTarget & {
+      hasPointerCapture?: (pointerId: number) => boolean;
+      releasePointerCapture?: (pointerId: number) => void;
+    };
+    if (surface.hasPointerCapture?.(event.pointerId)) {
+      surface.releasePointerCapture?.(event.pointerId);
+    }
     pointer = null;
     interactionStore.setDragging(false);
-    if (completed.kind === 'toggle_panel') void gateway.showPanel();
   };
+  const pointerCancel = (event: PointerEvent) => pointerUp(event);
 </script>
 
 <main
+  bind:this={panelShell}
   aria-label="CacheBite"
   class:panel={windowLabel === 'panel'}
   data-collector-mode-claude={collectorMode?.claude}
@@ -581,36 +592,37 @@
     <p role="alert">CacheBite could not start</p>
     <button onclick={() => void start()}>Retry</button>
   {:else if windowLabel === 'panel'}
-    <UsagePanel
-      providers={panelProviders}
-      selected={$providersStore.selected}
-      primary={$settingsStore.primaryProvider}
-      refreshing={$providersStore.refreshing[$providersStore.selected]}
-      {nowMs}
-      onQuit={() => void gateway.quit()}
-      onSelect={(provider) => {
-        providersStore.selectTab(provider);
-        if (provider !== $settingsStore.primaryProvider) {
-          void changeSettings({ ...$settingsStore, primaryProvider: provider });
-        }
-      }}
-      onRefresh={(provider) => providersStore.requestRefresh(provider)}
-      onPrimary={(provider) =>
-        void changeSettings({ ...$settingsStore, primaryProvider: provider })}
-    />
-    <HistoryGraph
-      samples={history[$providersStore.selected]}
-      window={historyWindow}
-      onWindowChange={(value) => {
-        historyWindow = value;
-      }}
-    />
-    <SettingsPanel
-      settings={$settingsStore}
-      autostartAvailable={platformCapabilities?.autostart.status !==
-        'unavailable'}
-      onChange={(settings) => void changeSettings(settings)}
-    />
+    {#if showSettings}
+      <div class="settings-view">
+        <button class="settings-back" onclick={() => (showSettings = false)}
+          >← Back</button
+        >
+        <SettingsPanel
+          settings={$settingsStore}
+          theme={themePreference}
+          autostartAvailable={platformCapabilities?.autostart.status !==
+            'unavailable'}
+          onChange={(settings) => void changeSettings(settings)}
+          onThemeChange={changeTheme}
+        />
+      </div>
+    {:else}
+      <UsagePanel
+        providers={panelProviders}
+        selected={$providersStore.selected}
+        primary={$settingsStore.primaryProvider}
+        refreshing={$providersStore.refreshing[$providersStore.selected]}
+        {nowMs}
+        onClose={() => void gateway.hidePanel()}
+        onSettings={() => (showSettings = true)}
+        onSelect={(provider) => {
+          providersStore.selectTab(provider);
+        }}
+        onRefresh={(provider) => providersStore.requestRefresh(provider)}
+        onPrimary={(provider) =>
+          void changeSettings({ ...$settingsStore, primaryProvider: provider })}
+      />
+    {/if}
     {#if settingsSaveFailed}<p role="status">
         Settings could not be saved
       </p>{/if}
@@ -627,23 +639,22 @@
         {notificationDiagnostic.reason}
       </p>{/if}
   {:else}
-    <div
-      data-testid="overlay-pointer-surface"
-      onpointerdown={pointerDown}
-      onpointermove={pointerMove}
-      onpointerup={pointerUp}
-    >
-      {#if overlayModel}
-        <PetOverlay model={overlayModel} />
-      {:else if petPackageError}
-        <p role="status">Pet package unavailable</p>
-      {/if}
-    </div>
+    {#if overlayModel}
+      <PetOverlay
+        model={overlayModel}
+        onPointerDown={pointerDown}
+        onPointerMove={pointerMove}
+        onPointerUp={pointerUp}
+        onPointerCancel={pointerCancel}
+        onOpen={() => void gateway.showPanel()}
+      />
+    {:else if petPackageError}
+      <p role="status">Pet package unavailable</p>
+    {/if}
     {#if $interactionStore.bubblePolicy.bubble}
       <SpeechBubble
         message={$interactionStore.bubblePolicy.bubble.message}
         onDismiss={() => interactionStore.dismissBubble()}
-        onOpenPanel={() => void gateway.showPanel()}
       />
     {/if}
     {#if positionSaveFailed}<p role="status">
@@ -651,3 +662,28 @@
       </p>{/if}
   {/if}
 </main>
+
+<style>
+  .settings-view {
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4) var(--space-4);
+  }
+  .settings-back {
+    justify-self: start;
+    min-height: 2rem;
+    padding: 0 var(--space-3);
+    border: 1px solid transparent;
+    border-radius: 0.5rem;
+    background: transparent;
+    color: var(--color-text-muted);
+    font: inherit;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .settings-back:hover,
+  .settings-back:focus-visible {
+    border-color: var(--color-border);
+    color: var(--color-text);
+  }
+</style>

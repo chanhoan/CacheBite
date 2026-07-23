@@ -22,47 +22,30 @@ main {
 }
 
 main.panel {
-  width: min(23rem, 100%);
+  width: min(19.5rem, 100%);
+  min-height: 0;
+  padding: 0;
   overflow: hidden;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-panel);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-panel);
-}
-
-main.panel[data-platform='macos'] {
   border-radius: 14px;
   background: rgb(250 250 252 / 92%);
+  box-shadow: var(--shadow-panel);
   backdrop-filter: blur(20px);
   --color-accent: #0a84ff;
 }
 
-main.panel[data-platform='windows'] {
-  border-radius: 8px;
-  background: #f3f3f3;
-  font-family: 'Segoe UI', system-ui, sans-serif;
-  --color-accent: #0067c0;
-}
-
-main.panel[data-platform='linux'] {
-  border-radius: 12px;
-  background: #fafafb;
-  font-family: 'Cantarell', 'Ubuntu', system-ui, sans-serif;
-  --color-accent: #3584e4;
-}
-
 @media (prefers-color-scheme: dark) {
-  /* A blanket `[data-platform]` override used to replace the macOS background
-     with an opaque surface, which silently disabled its backdrop-filter. Each
-     platform now keeps its own dark treatment. */
-  main.panel[data-platform='macos'] {
+  :root:not([data-theme='light']) main.panel {
     background: rgb(28 31 36 / 92%);
   }
+}
 
-  main.panel[data-platform='windows'],
-  main.panel[data-platform='linux'] {
-    background: var(--color-surface);
-  }
+:root[data-theme='dark'] main.panel {
+  background: rgb(28 31 36 / 92%);
+}
+
+:root[data-theme='light'] main.panel {
+  background: rgb(250 250 252 / 92%);
 }
 
 .visually-hidden {

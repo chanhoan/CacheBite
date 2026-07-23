@@ -1,6 +1,7 @@
 {
   "id": "cat",
   "displayName": "Cat",
+  "version": 1,
   "defaultSize": {
     "width": 128,
     "height": 128

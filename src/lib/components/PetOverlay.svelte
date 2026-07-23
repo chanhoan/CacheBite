@@ -3,8 +3,21 @@
   import SplitUsageRing from './SplitUsageRing.svelte';
   import SystemBadge from './SystemBadge.svelte';
 
-  /** @type {{ model: import('./models').PetOverlayViewModel }} */
-  let { model } = $props();
+  /** @type {{ model: import('./models').PetOverlayViewModel; onPointerDown?: (event: PointerEvent) => void; onPointerMove?: (event: PointerEvent) => void; onPointerUp?: (event: PointerEvent) => void; onPointerCancel?: (event: PointerEvent) => void; onOpen?: () => void }} */
+  let {
+    model,
+    onPointerDown = () => {},
+    onPointerMove = () => {},
+    onPointerUp = () => {},
+    onPointerCancel = () => {},
+    onOpen = () => {},
+  } = $props();
+  /** @param {KeyboardEvent} event */
+  const keydown = (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    onOpen();
+  };
 </script>
 
 <section
@@ -27,6 +40,20 @@
       <SystemBadge system={model.system} />
     </div>
   {/if}
+  <div
+    class="interaction-surface"
+    data-testid="overlay-pointer-surface"
+    role="button"
+    tabindex="0"
+    aria-label="Move pet; double-click or press Enter for usage"
+    style="clip-path: circle(50% at 50% 50%)"
+    onpointerdown={onPointerDown}
+    onpointermove={onPointerMove}
+    onpointerup={onPointerUp}
+    onpointercancel={onPointerCancel}
+    ondblclick={() => onOpen()}
+    onkeydown={keydown}
+  ></div>
 </section>
 
 <style>
@@ -51,5 +78,17 @@
     position: absolute;
     right: 2%;
     bottom: 2%;
+  }
+  .interaction-surface {
+    position: absolute;
+    z-index: 1;
+    inset: 0;
+    border-radius: 50%;
+    clip-path: circle(50% at 50% 50%);
+    cursor: grab;
+    touch-action: none;
+  }
+  .interaction-surface:active {
+    cursor: grabbing;
   }
 </style>

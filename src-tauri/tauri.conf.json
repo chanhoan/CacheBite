@@ -28,15 +28,17 @@
         "decorations": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
-        "resizable": false
+        "resizable": false,
+        "shadow": false
       },
       {
         "label": "panel",
         "url": "index.html?window=panel",
         "title": "CacheBite Usage",
-        "width": 360,
+        "width": 312,
         "height": 520,
         "visible": false,
+        "transparent": true,
         "decorations": false,
         "resizable": false
       }

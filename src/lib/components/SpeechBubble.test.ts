@@ -14,7 +14,6 @@ describe('SpeechBubble', () => {
       props: {
         message: 'Almost full',
         onDismiss: dismiss,
-        onOpenPanel: vi.fn(),
       },
     });
     // A mount-scoped timer here could not be re-armed when the bubble is
@@ -22,14 +21,12 @@ describe('SpeechBubble', () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(dismiss).not.toHaveBeenCalled();
   });
-  it('opens the panel and dismisses when clicked', async () => {
+  it('only dismisses when clicked', async () => {
     const dismiss = vi.fn();
-    const open = vi.fn();
     render(SpeechBubble, {
-      props: { message: 'Reset', onDismiss: dismiss, onOpenPanel: open },
+      props: { message: 'Reset', onDismiss: dismiss },
     });
     await fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
-    expect(open).toHaveBeenCalledOnce();
     expect(dismiss).toHaveBeenCalledOnce();
   });
 });

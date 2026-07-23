@@ -88,16 +88,47 @@ describe('UsagePanel', () => {
     );
     expect(onPrimary).toHaveBeenCalledWith('claude');
     expect(onRefresh).not.toHaveBeenCalled();
-    expect(
-      container.querySelector('.freshness')?.textContent?.replace(/\s+/g, ' '),
-    ).toContain('Fresh · captured 2 min ago · oauth_api');
-    expect(container.querySelector('time')?.getAttribute('datetime')).toBe(
-      '2026-07-16T12:00:00Z',
+    const freshness = container.querySelector<HTMLElement>('.freshness');
+    expect(freshness?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      '● Fresh · captured 2 min ago',
     );
+    expect(freshness?.textContent).not.toMatch(/oauth_api|cli_rpc|cached/);
+    expect(
+      container.querySelector('.freshness time')?.getAttribute('datetime'),
+    ).toBe('2026-07-16T12:00:00Z');
   });
 
-  it('quits through the callback rather than acting on the window itself', async () => {
-    const onQuit = vi.fn();
+  it('omits source and cache details from stale freshness copy', () => {
+    const staleCached = {
+      ...provider('active', true),
+      isCached: true,
+    };
+    const { container } = render(UsagePanel, {
+      props: {
+        providers: {
+          claude: staleCached,
+          codex: {
+            ...staleCached,
+            provider: 'codex',
+            source: 'cli_rpc',
+          },
+        },
+        selected: 'claude',
+        primary: 'claude',
+        refreshing: false,
+        nowMs: NOW,
+      },
+    });
+
+    const freshness = container.querySelector('.freshness');
+    expect(freshness?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      '● Stale · captured 2 min ago',
+    );
+    expect(freshness?.textContent).not.toMatch(/oauth_api|cli_rpc|cached/);
+  });
+
+  it('closes the panel when Quit is pressed rather than acting on the window itself', async () => {
+    const onClose = vi.fn();
     render(UsagePanel, {
       props: {
         providers: bothProviders('active'),
@@ -105,14 +136,32 @@ describe('UsagePanel', () => {
         primary: 'claude',
         refreshing: false,
         nowMs: NOW,
-        onQuit,
+        onClose,
       },
     });
 
-    await fireEvent.click(
-      screen.getByRole('button', { name: 'Quit CacheBite' }),
-    );
-    expect(onQuit).toHaveBeenCalledTimes(1);
+    await fireEvent.click(screen.getByRole('button', { name: 'Quit' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens settings through its callback and exposes no window-close control', async () => {
+    const onSettings = vi.fn();
+    render(UsagePanel, {
+      props: {
+        providers: bothProviders('active'),
+        selected: 'claude',
+        primary: 'claude',
+        refreshing: false,
+        nowMs: NOW,
+        onSettings,
+      },
+    });
+
+    expect(
+      screen.queryByRole('button', { name: 'Close usage panel' }),
+    ).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(onSettings).toHaveBeenCalledTimes(1);
   });
 
   it.each([

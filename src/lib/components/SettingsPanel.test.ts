@@ -6,6 +6,7 @@ describe('SettingsPanel', () => {
   afterEach(cleanup);
   it('emits immutable setting changes', async () => {
     const onChange = vi.fn();
+    const onThemeChange = vi.fn();
     render(SettingsPanel, {
       props: {
         settings: {
@@ -15,8 +16,13 @@ describe('SettingsPanel', () => {
           notificationsEnabled: false,
           secondaryNotificationsEnabled: false,
         },
+        theme: 'system',
         onChange,
+        onThemeChange,
       },
+    });
+    await fireEvent.change(screen.getByLabelText('Appearance'), {
+      target: { value: 'dark' },
     });
     await fireEvent.change(screen.getByLabelText('Primary provider'), {
       target: { value: 'codex' },
@@ -24,7 +30,7 @@ describe('SettingsPanel', () => {
     await fireEvent.click(screen.getByLabelText('Speech bubbles'));
     await fireEvent.click(screen.getByLabelText('Native notifications'));
     await fireEvent.click(
-      screen.getByLabelText('Include secondary provider notifications'),
+      screen.getByLabelText('Secondary provider notifications'),
     );
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({ primaryProvider: 'codex' }),
@@ -38,5 +44,6 @@ describe('SettingsPanel', () => {
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({ secondaryNotificationsEnabled: true }),
     );
+    expect(onThemeChange).toHaveBeenCalledWith('dark');
   });
 });

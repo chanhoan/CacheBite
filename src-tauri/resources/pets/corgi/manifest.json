@@ -1,6 +1,7 @@
 {
   "id": "corgi",
   "displayName": "Corgi",
+  "version": 1,
   "defaultSize": {
     "width": 128,
     "height": 128
