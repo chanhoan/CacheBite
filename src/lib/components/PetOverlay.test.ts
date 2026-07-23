@@ -22,12 +22,18 @@ describe('PetOverlay', () => {
           weekly: { usedPercent: 93, severity: 'critical' },
           animation,
           petName: 'Geometric pet',
+          size: 160,
         },
       },
     });
 
-    expect(screen.getByLabelText('5-hour usage: 74%')).toBeTruthy();
-    expect(screen.getByLabelText('Weekly usage: 93%')).toBeTruthy();
+    // One composed label on the <svg>: a bare <path> has no implicit role, so
+    // per-arc labels never reach the accessibility tree.
+    expect(
+      screen.getByRole('img', {
+        name: 'Provider usage: 5-hour 74%, Weekly 93%',
+      }),
+    ).toBeTruthy();
     expect(screen.getByText('5H')).toBeTruthy();
     expect(screen.getByText('WK')).toBeTruthy();
     expect(screen.queryByRole('status')).toBeNull();
@@ -43,13 +49,39 @@ describe('PetOverlay', () => {
           weekly: { usedPercent: 15, severity: 'ok' },
           animation,
           petName: 'Geometric pet',
+          size: 160,
         },
       },
     });
 
-    const unknown = screen.getByLabelText('5-hour usage: unknown');
-    expect(unknown.getAttribute('data-severity')).toBe('unknown');
-    expect(unknown.getAttribute('stroke-dasharray')).toBe('0 100');
+    expect(
+      screen.getByRole('img', {
+        name: 'Provider usage: 5-hour unknown, Weekly 15%',
+      }),
+    ).toBeTruthy();
+    const unknown = screen.getByTestId('usage-ring').querySelector('.usage');
+    expect(unknown?.getAttribute('data-severity')).toBe('unknown');
+    expect(unknown?.getAttribute('stroke-dasharray')).toBe('0 100');
+  });
+
+  it('renders at the size the manifest declared', () => {
+    const { container } = render(PetOverlay, {
+      props: {
+        model: {
+          system: 'active',
+          stale: false,
+          session: { usedPercent: 10, severity: 'ok' },
+          weekly: { usedPercent: 10, severity: 'ok' },
+          animation,
+          petName: 'Geometric pet',
+          size: 192,
+        },
+      },
+    });
+
+    expect(
+      (container.querySelector('.overlay') as HTMLElement).style.width,
+    ).toBe('192px');
   });
 
   it('dims only the ring when usage is stale', () => {
@@ -62,6 +94,7 @@ describe('PetOverlay', () => {
           weekly: { usedPercent: 55, severity: 'ok' },
           animation,
           petName: 'Geometric pet',
+          size: 160,
         },
       },
     });
@@ -94,6 +127,7 @@ describe('PetOverlay', () => {
           weekly: { usedPercent: null, severity: 'unknown' },
           animation,
           petName: 'Geometric pet',
+          size: 160,
         },
       },
     });

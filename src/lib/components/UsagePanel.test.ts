@@ -2,7 +2,11 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import UsagePanel from './UsagePanel.svelte';
 
-const provider = (system: string, stale = false) => ({
+import type { SystemState } from '../state/engine';
+
+const NOW = Date.parse('2026-07-16T12:02:00Z');
+
+const provider = (system: SystemState, stale = false) => ({
   provider: 'claude' as const,
   system,
   stale,
@@ -12,6 +16,11 @@ const provider = (system: string, stale = false) => ({
   capturedAt: '2026-07-16T12:00:00Z',
   source: 'oauth_api' as const,
   isCached: false,
+});
+
+const bothProviders = (system: SystemState) => ({
+  claude: provider(system),
+  codex: { ...provider(system), provider: 'codex' as const, source: 'cli_rpc' },
 });
 
 describe('UsagePanel', () => {
@@ -64,6 +73,7 @@ describe('UsagePanel', () => {
         selected: 'claude',
         primary: 'codex',
         refreshing: true,
+        nowMs: NOW,
         onRefresh,
         onSelect,
         onPrimary,
@@ -80,6 +90,61 @@ describe('UsagePanel', () => {
     expect(onRefresh).not.toHaveBeenCalled();
     expect(
       container.querySelector('.freshness')?.textContent?.replace(/\s+/g, ' '),
-    ).toContain('Fresh · captured 2026-07-16T12:00:00Z · oauth_api');
+    ).toContain('Fresh · captured 2 min ago · oauth_api');
+    expect(container.querySelector('time')?.getAttribute('datetime')).toBe(
+      '2026-07-16T12:00:00Z',
+    );
+  });
+
+  it('quits through the callback rather than acting on the window itself', async () => {
+    const onQuit = vi.fn();
+    render(UsagePanel, {
+      props: {
+        providers: bothProviders('active'),
+        selected: 'claude',
+        primary: 'claude',
+        refreshing: false,
+        nowMs: NOW,
+        onQuit,
+      },
+    });
+
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Quit CacheBite' }),
+    );
+    expect(onQuit).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['auth_required' as const, 'Sign in to the Claude CLI: claude login'],
+    ['unavailable' as const, 'The Claude CLI is not installed'],
+    ['error' as const, 'Could not fetch usage. Retrying shortly.'],
+    ['offline' as const, 'Cannot reach the network'],
+  ])('shows recovery guidance for %s', (system, expected) => {
+    render(UsagePanel, {
+      props: {
+        providers: bothProviders(system),
+        selected: 'claude',
+        primary: 'claude',
+        refreshing: false,
+        nowMs: NOW,
+      },
+    });
+
+    expect(screen.getByRole('status').textContent).toBe(expected);
+  });
+
+  it('keeps the guidance live region empty while usage is displayable', () => {
+    render(UsagePanel, {
+      props: {
+        providers: bothProviders('active'),
+        selected: 'claude',
+        primary: 'claude',
+        refreshing: false,
+        nowMs: NOW,
+      },
+    });
+
+    expect(screen.getByRole('status').textContent).toBe('');
   });
 });

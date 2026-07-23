@@ -83,7 +83,7 @@ pub fn run() {
             };
             let snapshots = Arc::new(store::SnapshotRepository::new(&app_data));
             let history = Arc::new(store::HistoryRepository::new(&app_data));
-            let persistence = refresh::RefreshPersistence::new(snapshots, history);
+            let persistence = refresh::RefreshPersistence::new(snapshots, history.clone());
             let service = refresh::RefreshService::new(
                 refresh::RefreshHandle::spawn_persistent(
                     claude,
@@ -98,7 +98,9 @@ pub fn run() {
             );
             refresh::ipc::emit_provider_states(app.handle(), &service);
             app.manage(settings_repository);
-            app.manage(store::HistoryRepository::new(app.path().app_data_dir()?));
+            // Share the repository the refresh actors already write through
+            // instead of constructing a second one over the same file.
+            app.manage(history);
             app.manage(store::PetPackageRepository::new(app.path().app_data_dir()?));
             app.manage(service);
             app.manage(collector_mode);

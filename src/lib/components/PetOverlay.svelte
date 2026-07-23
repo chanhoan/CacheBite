@@ -7,7 +7,11 @@
   let { model } = $props();
 </script>
 
-<section class="overlay" aria-label="CacheBite pet status">
+<section
+  class="overlay"
+  aria-label="CacheBite pet status"
+  style:width={`${model.size}px`}
+>
   {#if model.system === 'active'}
     <SplitUsageRing
       session={model.session}
@@ -28,7 +32,9 @@
 <style>
   .overlay {
     position: relative;
-    width: 10rem;
+    /* Width comes from the manifest via `model.size`; the square ratio and the
+       max-width keep an oversized package inside the overlay window. */
+    max-width: 100%;
     aspect-ratio: 1;
   }
   .overlay :global(.ring) {

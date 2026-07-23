@@ -2,9 +2,14 @@ import type {
   FailureClass,
   Provider,
   ProviderUiSnapshot,
+  UnavailableReason,
 } from '../contracts/domain';
 
 export const FRESH_MAX_AGE_MS = 20 * 60_000;
+// Must mirror the backend TTL (`refresh/actor.rs`). The backend is the single
+// authority on expiry: it emits `snapshot_expired`, and the renderer never
+// recomputes age against this constant. Two clocks judging the same deadline
+// would oscillate under drift.
 export const SNAPSHOT_TTL_MS = 30 * 60_000;
 
 export type SystemState =
@@ -24,7 +29,16 @@ type StatusUpdate =
       readonly revision: number;
     }
   | { readonly kind: 'credentials_missing'; readonly revision: number }
-  | { readonly kind: 'cli_missing'; readonly revision: number };
+  | { readonly kind: 'cli_missing'; readonly revision: number }
+  | {
+      readonly kind: 'snapshot_expired';
+      readonly revision: number;
+      // The backend reports expiry and the last outcome independently, so an
+      // expired snapshot can arrive alongside `not_signed_in`. Carry both or
+      // the degradation loses the reason the fetch failed.
+      readonly unavailableReason: UnavailableReason | null;
+      readonly failureClass: FailureClass | null;
+    };
 
 export interface ProviderState {
   readonly provider: Provider;
@@ -32,7 +46,6 @@ export interface ProviderState {
   readonly snapshot: ProviderUiSnapshot | null;
   readonly status: Exclude<SystemState, 'active'>;
   readonly lastFailure: FailureClass | null;
-  readonly resetKeys: ReadonlySet<string>;
   readonly resetWindows: ReadonlySet<WindowName>;
 }
 
@@ -44,11 +57,21 @@ export interface PetUiState {
   readonly petMood: Exclude<Severity, 'unknown'>;
 }
 
+/**
+ * A raise only ever lands above `ok`, but the comparison that produces one is
+ * arithmetic on a rank table, which the type system cannot follow. The
+ * predicate below carries that proof so no caller has to cast.
+ */
+export type RaisedSeverity = Exclude<Severity, 'ok' | 'unknown'>;
+
+const isRaisedSeverity = (value: Severity): value is RaisedSeverity =>
+  value === 'warn' || value === 'critical' || value === 'exhausted';
+
 export type DomainEvent =
   | {
       readonly kind: 'severity_raised';
       readonly window: WindowName;
-      readonly severity: Severity;
+      readonly severity: RaisedSeverity;
     }
   | { readonly kind: 'window_reset'; readonly window: WindowName };
 
@@ -59,7 +82,6 @@ export function createProviderState(provider: Provider): ProviderState {
     snapshot: null,
     status: 'loading',
     lastFailure: null,
-    resetKeys: new Set(),
     resetWindows: new Set(),
   };
 }
@@ -148,7 +170,11 @@ export function applyProviderUpdate(
             : previous.weeklySeverity;
         const after =
           window === 'session' ? next.sessionSeverity : next.weeklySeverity;
-        if (rank[after] > rank[before] && before !== 'unknown')
+        if (
+          rank[after] > rank[before] &&
+          before !== 'unknown' &&
+          isRaisedSeverity(after)
+        )
           return [{ kind: 'severity_raised', window, severity: after }];
         if (rank[after] < rank[before] && after !== 'unknown')
           return [{ kind: 'window_reset', window }];
@@ -156,6 +182,36 @@ export function applyProviderUpdate(
       },
     );
     return { state: nextState, accepted: true, events };
+  }
+  if (update.kind === 'snapshot_expired') {
+    // Contract §2.2, `active` row / SNAPSHOT_EXPIRED column: discard the
+    // snapshot and degrade by the reason the backend last recorded. On boot a
+    // hydrated state arrives expired before the renderer has accumulated
+    // anything, so the backend-reported reason must outrank `state`; only when
+    // it is absent does a previously observed blocking status apply.
+    const lastFailure = update.failureClass ?? state.lastFailure;
+    const degraded =
+      update.unavailableReason === 'not_signed_in' ||
+      state.status === 'auth_required'
+        ? 'auth_required'
+        : update.unavailableReason === 'not_installed' ||
+            state.status === 'unavailable'
+          ? 'unavailable'
+          : lastFailure === 'network'
+            ? 'offline'
+            : 'error';
+    return {
+      state: {
+        ...state,
+        revision: update.revision,
+        snapshot: null,
+        status: degraded,
+        lastFailure,
+        resetWindows: new Set(),
+      },
+      accepted: true,
+      events: [],
+    };
   }
   const status =
     update.kind === 'credentials_missing'
@@ -175,32 +231,5 @@ export function applyProviderUpdate(
     state: { ...state, revision: update.revision, status, lastFailure },
     accepted: true,
     events: [],
-  };
-}
-
-export function tickResetTimers(
-  state: ProviderState,
-  nowMs: number,
-): { state: ProviderState; events: readonly DomainEvent[] } {
-  const due = (['session', 'weekly'] as const).filter((window) => {
-    const resetsAt = state.snapshot?.[window]?.resetsAt;
-    return (
-      resetsAt !== null &&
-      resetsAt !== undefined &&
-      nowMs >= Date.parse(resetsAt) &&
-      !state.resetKeys.has(`${state.provider}:${window}:${resetsAt}`)
-    );
-  });
-  if (due.length === 0) return { state, events: [] };
-  const resetKeys = new Set(state.resetKeys);
-  const resetWindows = new Set(state.resetWindows);
-  for (const window of due) {
-    const resetsAt = state.snapshot?.[window]?.resetsAt;
-    resetKeys.add(`${state.provider}:${window}:${resetsAt}`);
-    resetWindows.add(window);
-  }
-  return {
-    state: { ...state, resetKeys, resetWindows },
-    events: due.map((window) => ({ kind: 'window_reset', window })),
   };
 }

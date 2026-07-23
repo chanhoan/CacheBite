@@ -15,4 +15,6 @@ export interface PetOverlayViewModel {
   readonly weekly: RingWindowModel;
   readonly animation: ResolvedAnimation;
   readonly petName: string;
+  /** Rendered edge length in CSS pixels, already clamped to the overlay window. */
+  readonly size: number;
 }

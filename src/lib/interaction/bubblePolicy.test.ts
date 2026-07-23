@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { createBubblePolicy, reduceBubble } from './bubblePolicy';
+import {
+  BUBBLE_DISMISS_MS,
+  createBubblePolicy,
+  expireBubble,
+  reduceBubble,
+} from './bubblePolicy';
 
 const context = {
   primary: 'claude' as const,
@@ -90,5 +95,30 @@ describe('bubble policy', () => {
     );
     expect(recovery).toBe(exhausted);
     expect(exhausted.bubble?.expiresAt).toBe(8000);
+  });
+
+  it('returns the same state when the bubble has not expired yet', () => {
+    const shown = reduceBubble(
+      createBubblePolicy(),
+      { kind: 'auth_required', provider: 'claude' },
+      context,
+    );
+    expect(expireBubble(shown, BUBBLE_DISMISS_MS - 1)).toBe(shown);
+  });
+
+  it('clears the bubble once the dismissal deadline is reached', () => {
+    const shown = reduceBubble(
+      createBubblePolicy(),
+      { kind: 'auth_required', provider: 'claude' },
+      context,
+    );
+    const expired = expireBubble(shown, BUBBLE_DISMISS_MS);
+    expect(expired.bubble).toBeNull();
+    expect(expired.dedupe).toBe(shown.dedupe);
+  });
+
+  it('is a no-op when no bubble is showing', () => {
+    const empty = createBubblePolicy();
+    expect(expireBubble(empty, BUBBLE_DISMISS_MS * 10)).toBe(empty);
   });
 });

@@ -20,7 +20,7 @@ describe('UsageGauge', () => {
     expect(screen.getByText('100%')).toBeTruthy();
   });
 
-  it('renders reset context and dims only a stale bar', () => {
+  it('renders a wall-clock weekly reset and dims only a stale bar', () => {
     const { container } = render(UsageGauge, {
       props: {
         label: 'Weekly',
@@ -30,12 +30,47 @@ describe('UsageGauge', () => {
           resetsAt: '2026-07-20T09:00:00Z',
         },
         stale: true,
+        resetFormat: 'absolute',
       },
     });
 
-    expect(screen.getByText(/resets 2026-07-20T09:00:00Z/)).toBeTruthy();
+    const time = container.querySelector('time');
+    // The rendered clock follows the runner's zone, so only the machine-readable
+    // attribute and the shape of the label are stable assertions.
+    expect(time?.getAttribute('datetime')).toBe('2026-07-20T09:00:00Z');
+    expect(time?.textContent).toMatch(/^resets [A-Z][a-z]{2} \d{2}:\d{2}$/);
     expect(container.querySelector('.gauge-track')?.classList).toContain(
       'stale',
     );
+  });
+
+  it('counts down the five-hour window instead of printing an ISO string', () => {
+    const { container } = render(UsageGauge, {
+      props: {
+        label: '5-hour',
+        window: {
+          usedPercent: 42,
+          severity: 'ok',
+          resetsAt: '2026-07-16T13:12:00Z',
+        },
+        nowMs: Date.parse('2026-07-16T12:00:00Z'),
+      },
+    });
+
+    expect(screen.getByText('resets in 1h 12m')).toBeTruthy();
+    expect(container.querySelector('time')?.getAttribute('datetime')).toBe(
+      '2026-07-16T13:12:00Z',
+    );
+  });
+
+  it('drops the reset element when the timestamp cannot be parsed', () => {
+    const { container } = render(UsageGauge, {
+      props: {
+        label: '5-hour',
+        window: { usedPercent: 10, severity: 'ok', resetsAt: 'not-a-date' },
+      },
+    });
+
+    expect(container.querySelector('time')).toBeNull();
   });
 });

@@ -16,7 +16,7 @@ const validManifest = {
       frameDurationMs: 160,
     },
   },
-  states: { exhausted: 'idle' },
+  states: { idle_exhausted: 'idle' },
 };
 
 describe('pet manifest validation', () => {
@@ -68,6 +68,11 @@ describe('pet manifest validation', () => {
       },
       'state',
     ],
+    // Bare severity names are the superseded naming scheme: the resolver only
+    // ever asks for the `idle_*` forms, so accepting these would let a package
+    // declare frames that can never be shown.
+    [{ ...validManifest, states: { warn: 'idle' } }, 'state'],
+    [{ ...validManifest, states: { exhausted: 'idle' } }, 'state'],
   ])('rejects malformed manifests safely', (candidate, message) => {
     expect(() => validatePetManifest(candidate)).toThrow(message);
   });
