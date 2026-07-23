@@ -30,6 +30,10 @@ STATE_SOURCES = {
 }
 FRAME_COUNT = 4
 FRAME_DURATION_MS = 240
+# Bump when regenerated frame *content* changes without renaming files, so the
+# app force-reinstalls stock pets over stale installed copies (see
+# store::pets::should_preserve_installed).
+PACKAGE_VERSION = 1
 OUTPUT_SIZE = (512, 512)
 
 
@@ -222,6 +226,7 @@ def build_package(package_id: str, source_pet: str) -> None:
     manifest = {
         "id": package_id,
         "displayName": package_id.title(),
+        "version": PACKAGE_VERSION,
         "defaultSize": {"width": 128, "height": 128},
         "animations": {
             state: animation(package_id, state, source_state)

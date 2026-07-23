@@ -19,6 +19,8 @@ pub struct PetPackage {
 pub struct PetManifest {
     pub id: String,
     pub display_name: String,
+    #[serde(default)]
+    pub version: u32,
     pub default_size: BTreeMap<String, u32>,
     pub animations: BTreeMap<String, Animation>,
     #[serde(default)]
@@ -92,7 +94,7 @@ impl PetPackageRepository {
         })
     }
 
-    pub fn should_preserve_installed(&self, id: &str) -> bool {
+    pub fn should_preserve_installed(&self, id: &str, bundled_version: u32) -> bool {
         let Ok(package) = self.load(id) else {
             return false;
         };
@@ -101,9 +103,17 @@ impl PetPackageRepository {
             "corgi" => "Corgi",
             _ => return true,
         };
+        // A renamed pet is a user customization — never clobber it.
         if package.manifest.display_name != bundled_name {
             return true;
         }
+        // Stock pet whose bundled art was refreshed: force a reinstall so
+        // updated frame content (e.g. transparent backgrounds) reaches disk
+        // even though filenames are unchanged.
+        if package.manifest.version < bundled_version {
+            return false;
+        }
+        // Stock and up to date only when frames already use current naming.
         let prefix = format!("frames/{id}_");
         package
             .manifest
@@ -112,6 +122,22 @@ impl PetPackageRepository {
             .flat_map(paths)
             .all(|path| path.starts_with(&prefix))
     }
+}
+
+/// Reads only the `version` field from a manifest on disk, tolerant of any
+/// other shape. Returns 0 when the file is missing or unparseable so a
+/// versionless legacy manifest never spuriously triggers an upgrade.
+pub fn bundled_manifest_version(manifest_path: &Path) -> u32 {
+    #[derive(Deserialize)]
+    struct VersionProbe {
+        #[serde(default)]
+        version: u32,
+    }
+    fs::read(manifest_path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<VersionProbe>(&bytes).ok())
+        .map(|probe| probe.version)
+        .unwrap_or(0)
 }
 
 fn normalize_asset_root(raw: &str) -> String {

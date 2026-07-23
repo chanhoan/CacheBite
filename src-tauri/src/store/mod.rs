@@ -4,7 +4,7 @@ mod settings;
 mod snapshots;
 
 pub use history::{HistoryPoint, HistoryProvider, HistoryRepository, HistorySample, HistoryStore};
-pub use pets::{PetPackage, PetPackageRepository};
+pub use pets::{bundled_manifest_version, PetPackage, PetPackageRepository};
 pub use settings::{LogicalPosition, Settings, SettingsRepository};
 pub use snapshots::{OutcomeMetadata, ProviderRecord, SnapshotRepository, SnapshotStore};
 

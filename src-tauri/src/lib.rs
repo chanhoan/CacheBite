@@ -202,9 +202,12 @@ fn install_bundled_pet_packages(resource_dir: &Path, app_data: &Path) -> io::Res
     let bundled_pets = resource_dir.join("resources").join("pets");
     let installed_pets = app_data.join("pets");
     fs::create_dir_all(&installed_pets)?;
+    let repository = store::PetPackageRepository::new(app_data);
     for package_id in ["cat", "corgi"] {
         let destination = installed_pets.join(package_id);
-        if store::PetPackageRepository::new(app_data).should_preserve_installed(package_id) {
+        let bundled_version =
+            store::bundled_manifest_version(&bundled_pets.join(package_id).join("manifest.json"));
+        if repository.should_preserve_installed(package_id, bundled_version) {
             continue;
         }
         if destination.exists() {
@@ -495,5 +498,81 @@ mod tests {
             "new frame"
         );
         assert!(!app_data.join("pets/cat/frames/idle_01.png").exists());
+    }
+
+    #[test]
+    fn reinstalls_stock_pet_when_bundled_version_is_newer() {
+        let temp = tempfile::tempdir().unwrap();
+        let bundled = temp.path().join("resources/pets");
+        let app_data = temp.path().join("app-data");
+        for package_id in ["cat", "corgi"] {
+            fs::create_dir_all(bundled.join(package_id).join("frames")).unwrap();
+            fs::write(
+                bundled.join(package_id).join("manifest.json"),
+                r#"{"version":1}"#,
+            )
+            .unwrap();
+        }
+        fs::write(
+            bundled.join("cat/frames/cat_idle_01.png"),
+            "transparent frame",
+        )
+        .unwrap();
+
+        // Installed stock cat: current frame naming, no version field (legacy 0).
+        fs::create_dir_all(app_data.join("pets/cat/frames")).unwrap();
+        fs::write(
+            app_data.join("pets/cat/manifest.json"),
+            r#"{"id":"cat","displayName":"Cat","defaultSize":{"width":128,"height":128},"animations":{"idle":{"type":"image","source":"frames/cat_idle_01.png"}},"states":{}}"#,
+        )
+        .unwrap();
+        fs::write(
+            app_data.join("pets/cat/frames/cat_idle_01.png"),
+            "opaque frame",
+        )
+        .unwrap();
+
+        super::install_bundled_pet_packages(temp.path(), &app_data).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(app_data.join("pets/cat/frames/cat_idle_01.png")).unwrap(),
+            "transparent frame"
+        );
+    }
+
+    #[test]
+    fn preserves_stock_pet_when_installed_version_matches_bundled() {
+        let temp = tempfile::tempdir().unwrap();
+        let bundled = temp.path().join("resources/pets");
+        let app_data = temp.path().join("app-data");
+        for package_id in ["cat", "corgi"] {
+            fs::create_dir_all(bundled.join(package_id).join("frames")).unwrap();
+            fs::write(
+                bundled.join(package_id).join("manifest.json"),
+                r#"{"version":1}"#,
+            )
+            .unwrap();
+        }
+        fs::write(bundled.join("cat/frames/cat_idle_01.png"), "bundled frame").unwrap();
+
+        // Installed stock cat already at version 1 with current frame naming.
+        fs::create_dir_all(app_data.join("pets/cat/frames")).unwrap();
+        fs::write(
+            app_data.join("pets/cat/manifest.json"),
+            r#"{"id":"cat","displayName":"Cat","version":1,"defaultSize":{"width":128,"height":128},"animations":{"idle":{"type":"image","source":"frames/cat_idle_01.png"}},"states":{}}"#,
+        )
+        .unwrap();
+        fs::write(
+            app_data.join("pets/cat/frames/cat_idle_01.png"),
+            "kept frame",
+        )
+        .unwrap();
+
+        super::install_bundled_pet_packages(temp.path(), &app_data).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(app_data.join("pets/cat/frames/cat_idle_01.png")).unwrap(),
+            "kept frame"
+        );
     }
 }
