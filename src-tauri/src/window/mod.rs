@@ -351,14 +351,24 @@ pub fn clamp_window(position: Point, size: Size, displays: &[Display]) -> Option
     Some(clamp_to_rect(position, size, display.bounds))
 }
 
-pub fn anchor_panel(pet: Rect, panel: Size, display: Rect, gap: f64) -> Point {
+/// Anchors the panel beside the pet.
+///
+/// Horizontally the panel sits to the right of the pet, flipping to the left
+/// when it would overflow. Vertically it centres on the pet: top-aligning
+/// pushes the panel past the bottom edge for a pet parked low on the screen,
+/// which clamping can only resolve by pinning it flush against that edge.
+///
+/// `work_area` must be the usable region — the monitor minus taskbar, dock and
+/// menu bar — not the full resolution. The result is clamped inside it.
+pub fn anchor_panel(pet: Rect, panel: Size, work_area: Rect, gap: f64) -> Point {
     let right = pet.x + pet.width + gap;
-    let x = if right + panel.width <= display.x + display.width {
+    let x = if right + panel.width <= work_area.x + work_area.width {
         right
     } else {
         pet.x - gap - panel.width
     };
-    clamp_to_rect(Point { x, y: pet.y }, panel, display)
+    let y = pet.y + (pet.height - panel.height) / 2.0;
+    clamp_to_rect(Point { x, y }, panel, work_area)
 }
 
 fn clamp_to_rect(position: Point, size: Size, bounds: Rect) -> Point {
