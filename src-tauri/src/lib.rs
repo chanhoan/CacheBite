@@ -104,6 +104,7 @@ pub fn run() {
             app.manage(store::PetPackageRepository::new(app.path().app_data_dir()?));
             app.manage(service);
             app.manage(collector_mode);
+            app.manage(refresh::ipc::PanelLayoutGate::default());
             #[cfg(debug_assertions)]
             eprintln!("[CacheBite:native] setup:ready");
             #[cfg(windows)]
@@ -320,39 +321,10 @@ fn restore_window_positions(app: &tauri::App, settings: &store::Settings) {
     let Some(panel) = app.get_webview_window("panel") else {
         return;
     };
-    let (Ok(position), Ok(pet_size), Ok(panel_size), Ok(Some(monitor))) = (
-        overlay.outer_position(),
-        overlay.outer_size(),
-        panel.outer_size(),
-        overlay.current_monitor(),
-    ) else {
-        return;
-    };
-    let monitor_position = monitor.position();
-    let monitor_size = monitor.size();
-    let anchored = window::anchor_panel(
-        window::Rect {
-            x: f64::from(position.x),
-            y: f64::from(position.y),
-            width: f64::from(pet_size.width),
-            height: f64::from(pet_size.height),
-        },
-        window::Size {
-            width: f64::from(panel_size.width),
-            height: f64::from(panel_size.height),
-        },
-        window::Rect {
-            x: f64::from(monitor_position.x),
-            y: f64::from(monitor_position.y),
-            width: f64::from(monitor_size.width),
-            height: f64::from(monitor_size.height),
-        },
-        12.0 * scale,
-    );
-    let _ = panel.set_position(tauri::PhysicalPosition::new(
-        anchored.x.round() as i32,
-        anchored.y.round() as i32,
-    ));
+    // Share the placement policy with show_panel/resize_panel rather than
+    // reimplementing it here — this path used the full monitor bounds and a
+    // separately scaled gap, so the two disagreed on HiDPI displays.
+    let _ = refresh::ipc::position_panel(&overlay, &panel);
 }
 
 fn platform_home_dir() -> Option<std::path::PathBuf> {

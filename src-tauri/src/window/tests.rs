@@ -115,6 +115,126 @@ fn panel_anchor_flips_then_clamps_inside_display() {
     );
 }
 
+/// 1920x1080 with a 48px taskbar leaves a 1032px work area. A 312x520 panel
+/// anchored to a pet parked at the bottom must not slide under the taskbar.
+#[test]
+fn panel_anchor_keeps_panel_above_taskbar_for_bottom_pet() {
+    let work_area = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1920.0,
+        height: 1032.0,
+    };
+    let pet = Rect {
+        x: 100.0,
+        y: 800.0,
+        width: 240.0,
+        height: 240.0,
+    };
+    let panel = Size {
+        width: 312.0,
+        height: 520.0,
+    };
+
+    let anchored = anchor_panel(pet, panel, work_area, 12.0);
+
+    assert_eq!(anchored, Point { x: 352.0, y: 512.0 });
+    assert!(anchored.y + panel.height <= work_area.y + work_area.height);
+}
+
+/// With room to spare the panel centres on the pet and is never clamped.
+/// Top-aligning would yield y=400 here, so this pins down which policy is live.
+#[test]
+fn panel_anchor_centers_vertically_on_pet_when_space_allows() {
+    let work_area = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1920.0,
+        height: 1032.0,
+    };
+    let pet = Rect {
+        x: 800.0,
+        y: 400.0,
+        width: 240.0,
+        height: 240.0,
+    };
+    assert_eq!(
+        anchor_panel(
+            pet,
+            Size {
+                width: 312.0,
+                height: 520.0
+            },
+            work_area,
+            12.0
+        ),
+        Point {
+            x: 1052.0,
+            y: 260.0
+        }
+    );
+}
+
+/// A pet near the top centres above the work area, so the clamp pulls it down
+/// to the first usable row — here a macOS menu bar starting the area at y=25.
+#[test]
+fn panel_anchor_clamps_to_work_area_top_for_top_pet() {
+    let work_area = Rect {
+        x: 0.0,
+        y: 25.0,
+        width: 1440.0,
+        height: 875.0,
+    };
+    let pet = Rect {
+        x: 40.0,
+        y: 30.0,
+        width: 240.0,
+        height: 240.0,
+    };
+    assert_eq!(
+        anchor_panel(
+            pet,
+            Size {
+                width: 312.0,
+                height: 520.0
+            },
+            work_area,
+            12.0
+        ),
+        Point { x: 292.0, y: 25.0 }
+    );
+}
+
+/// A panel taller than the work area pins to the top instead of overflowing
+/// past the bottom, keeping its header reachable.
+#[test]
+fn panel_anchor_pins_oversized_panel_to_work_area_top() {
+    let work_area = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1920.0,
+        height: 1032.0,
+    };
+    let pet = Rect {
+        x: 100.0,
+        y: 800.0,
+        width: 240.0,
+        height: 240.0,
+    };
+    assert_eq!(
+        anchor_panel(
+            pet,
+            Size {
+                width: 312.0,
+                height: 1200.0
+            },
+            work_area,
+            12.0
+        ),
+        Point { x: 352.0, y: 0.0 }
+    );
+}
+
 #[test]
 fn fullscreen_changes_visibility_without_touching_collection_revision() {
     let state = RuntimeState {
