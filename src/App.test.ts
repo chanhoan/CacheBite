@@ -58,7 +58,7 @@ const fixture = () => {
     getSettings: vi.fn(async () => ({
       schemaVersion: 3,
       primaryProvider: 'claude' as const,
-      selectedPetId: 'cat',
+      selectedPetId: 'tabby',
       bubblesEnabled: true,
       startAtLogin: false,
       notificationsEnabled: false,
@@ -79,6 +79,10 @@ const fixture = () => {
       },
       assetBaseUrl: 'asset://localhost/pets/fixture-pet/',
     })),
+    listPetPackages: vi.fn(async () => [
+      { id: 'corgi', displayName: 'Corgi' },
+      { id: 'tabby', displayName: 'Tabby' },
+    ]),
     getPlatformCapabilities: vi.fn(async () => ({
       os: 'linux' as const,
       always_on_top: { status: 'available' as const },
@@ -155,7 +159,7 @@ describe('application composition root', () => {
     vi.mocked(gateway.getSettings).mockResolvedValue({
       ...(await gateway.getSettings()),
       primaryProvider: 'codex',
-      selectedPetId: 'cat',
+      selectedPetId: 'tabby',
     });
 
     render(App, { props: { gateway, notificationAdapter: notifications } });
@@ -459,14 +463,60 @@ describe('application composition root', () => {
     await fireEvent.click(setPrimary);
     await waitFor(() =>
       expect(gateway.updateSettings).toHaveBeenCalledWith(
+        // The pet is the user's choice — switching the primary provider
+        // changes the data source, never the pet on screen.
         expect.objectContaining({
           primaryProvider: 'codex',
-          selectedPetId: 'corgi',
+          selectedPetId: 'tabby',
         }),
       ),
     );
     expect(screen.getByRole('tab', { name: 'Codex (primary)' })).toBeTruthy();
     expect(setPrimary.disabled).toBe(true);
+  });
+
+  it('changes the pet from settings without touching the primary provider', async () => {
+    window.history.replaceState({}, '', '/?window=panel');
+    const { gateway } = fixture();
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Settings' }),
+    );
+    const picker = await screen.findByLabelText('Pet');
+    expect(
+      [...(picker as HTMLSelectElement).options].map((option) => option.value),
+    ).toEqual(['corgi', 'tabby']);
+
+    await fireEvent.change(picker, { target: { value: 'corgi' } });
+
+    await waitFor(() =>
+      expect(gateway.updateSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          selectedPetId: 'corgi',
+          primaryProvider: 'claude',
+        }),
+      ),
+    );
+  });
+
+  it('keeps the settings pet picker usable when enumeration fails', async () => {
+    window.history.replaceState({}, '', '/?window=panel');
+    const { gateway } = fixture();
+    vi.mocked(gateway.listPetPackages).mockRejectedValue(
+      new Error('pets unavailable'),
+    );
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Settings' }),
+    );
+
+    // Falls back to the active pet rather than rendering an empty <select>.
+    const picker = (await screen.findByLabelText('Pet')) as HTMLSelectElement;
+    expect([...picker.options].map((option) => option.value)).toEqual([
+      'tabby',
+    ]);
   });
 
   it('restores the previous primary when saving a primary change fails', async () => {

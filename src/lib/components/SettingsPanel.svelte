@@ -1,12 +1,24 @@
 <script>
-  /** @type {{ settings: import('../state/presentation').SettingsStoreState; theme?: import('../state/theme').ThemePreference; autostartAvailable?: boolean; onChange?: (settings: import('../state/presentation').SettingsStoreState) => void; onThemeChange?: (theme: import('../state/theme').ThemePreference) => void }} */
+  /** @type {{ settings: import('../state/presentation').SettingsStoreState; theme?: import('../state/theme').ThemePreference; autostartAvailable?: boolean; pets?: readonly import('../api/gateway').PetSummaryModel[]; onChange?: (settings: import('../state/presentation').SettingsStoreState) => void; onThemeChange?: (theme: import('../state/theme').ThemePreference) => void }} */
   let {
     settings,
     theme = 'system',
     autostartAvailable = true,
+    pets = [],
     onChange = () => {},
     onThemeChange = () => {},
   } = $props();
+
+  // A failed enumeration must still show what is currently selected — an empty
+  // <select> would hide the active pet entirely.
+  const petOptions = $derived(
+    pets.some((pet) => pet.id === settings.selectedPetId)
+      ? pets
+      : [
+          { id: settings.selectedPetId, displayName: settings.selectedPetId },
+          ...pets,
+        ],
+  );
 
   // The <select> only ever holds the two option values below, but its DOM type
   // is plain string. Narrow at the boundary rather than trusting the markup.
@@ -60,6 +72,16 @@
         })}
       ><option value="claude">Claude</option><option value="codex">Codex</option
       ></select
+    ></label
+  >
+  <label class="field"
+    >Pet <select
+      value={settings.selectedPetId}
+      onchange={(event) =>
+        onChange({ ...settings, selectedPetId: event.currentTarget.value })}
+      >{#each petOptions as pet (pet.id)}<option value={pet.id}
+          >{pet.displayName}</option
+        >{/each}</select
     ></label
   >
   <label class="toggle"

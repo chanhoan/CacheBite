@@ -11,12 +11,17 @@ describe('SettingsPanel', () => {
       props: {
         settings: {
           primaryProvider: 'claude',
+          selectedPetId: 'tabby',
           bubblesEnabled: true,
           startAtLogin: false,
           notificationsEnabled: false,
           secondaryNotificationsEnabled: false,
         },
         theme: 'system',
+        pets: [
+          { id: 'corgi', displayName: 'Corgi' },
+          { id: 'tabby', displayName: 'Tabby' },
+        ],
         onChange,
         onThemeChange,
       },
@@ -27,6 +32,9 @@ describe('SettingsPanel', () => {
     await fireEvent.change(screen.getByLabelText('Primary provider'), {
       target: { value: 'codex' },
     });
+    await fireEvent.change(screen.getByLabelText('Pet'), {
+      target: { value: 'corgi' },
+    });
     await fireEvent.click(screen.getByLabelText('Speech bubbles'));
     await fireEvent.click(screen.getByLabelText('Native notifications'));
     await fireEvent.click(
@@ -34,6 +42,13 @@ describe('SettingsPanel', () => {
     );
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({ primaryProvider: 'codex' }),
+    );
+    // The pet is picked on its own; the primary provider rides along unchanged.
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        selectedPetId: 'corgi',
+        primaryProvider: 'claude',
+      }),
     );
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({ bubblesEnabled: false }),

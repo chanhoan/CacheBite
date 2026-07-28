@@ -31,10 +31,10 @@ pnpm dev                 # renderer only
 pnpm tauri dev           # desktop application
 pnpm test:ci             # check, lint, coverage, renderer build
 cargo test --manifest-path src-tauri/Cargo.toml --all-features
-python3 scripts/build-pet-packages.py # rebuild bundled cat/corgi packages from docs/UI-plan assets
+python3 scripts/build-pet-packages.py # rebuild bundled tabby/corgi packages from docs/UI-plan assets
 ```
 
-CacheBite bundles generated cat and corgi packages with a valid `idle` state and installs them into the application-data pet directory on first launch. Additional user-supplied packages can follow the same manifest contract; source artwork under `docs/UI-plan/` is only used by the package build script.
+CacheBite bundles generated tabby and corgi packages with a valid `idle` state and installs them into the application-data pet directory on first launch. Pets are selected in Settings, independently of which provider drives the usage ring. The manifest format is CacheBite-specific and third-party pet packages are not a supported distribution channel; source artwork under `docs/UI-plan/` is only used by the package build script. Package ids retired by a rename are reclaimed on launch — `cat` currently maps to `tabby` — so do not reuse a retired id for a local package.
 
 ## Provider collection and privacy
 

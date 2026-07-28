@@ -5,6 +5,7 @@ import { derivePetUiState, type ProviderState } from './engine';
 export type SettingsStoreState = Pick<
   AppSettings,
   | 'primaryProvider'
+  | 'selectedPetId'
   | 'bubblesEnabled'
   | 'startAtLogin'
   | 'notificationsEnabled'
@@ -16,6 +17,7 @@ export function toSettingsStoreState(
 ): SettingsStoreState {
   return {
     primaryProvider: settings.primaryProvider,
+    selectedPetId: settings.selectedPetId,
     bubblesEnabled: settings.bubblesEnabled,
     startAtLogin: settings.startAtLogin,
     notificationsEnabled: settings.notificationsEnabled,

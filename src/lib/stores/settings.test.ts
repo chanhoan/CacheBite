@@ -16,6 +16,7 @@ describe('settings and interaction stores', () => {
     store.setSecondaryNotifications(true);
     expect(get(store)).toEqual({
       primaryProvider: 'codex',
+      selectedPetId: 'tabby',
       bubblesEnabled: false,
       startAtLogin: true,
       notificationsEnabled: true,

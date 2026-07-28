@@ -1,6 +1,6 @@
 {
-  "id": "cat",
-  "displayName": "Cat",
+  "id": "tabby",
+  "displayName": "Tabby",
   "version": 1,
   "defaultSize": {
     "width": 128,
@@ -10,40 +10,40 @@
     "idle": {
       "type": "frames",
       "frames": [
-        "frames/cat_idle_01.png",
-        "frames/cat_idle_02.png",
-        "frames/cat_idle_03.png",
-        "frames/cat_idle_04.png"
+        "frames/tabby_idle_01.png",
+        "frames/tabby_idle_02.png",
+        "frames/tabby_idle_03.png",
+        "frames/tabby_idle_04.png"
       ],
       "frameDurationMs": 240
     },
     "idle_warn": {
       "type": "frames",
       "frames": [
-        "frames/cat_warn_01.png",
-        "frames/cat_warn_02.png",
-        "frames/cat_warn_03.png",
-        "frames/cat_warn_04.png"
+        "frames/tabby_warn_01.png",
+        "frames/tabby_warn_02.png",
+        "frames/tabby_warn_03.png",
+        "frames/tabby_warn_04.png"
       ],
       "frameDurationMs": 240
     },
     "idle_critical": {
       "type": "frames",
       "frames": [
-        "frames/cat_critical_01.png",
-        "frames/cat_critical_02.png",
-        "frames/cat_critical_03.png",
-        "frames/cat_critical_04.png"
+        "frames/tabby_critical_01.png",
+        "frames/tabby_critical_02.png",
+        "frames/tabby_critical_03.png",
+        "frames/tabby_critical_04.png"
       ],
       "frameDurationMs": 240
     },
     "idle_exhausted": {
       "type": "frames",
       "frames": [
-        "frames/cat_exhausted_01.png",
-        "frames/cat_exhausted_02.png",
-        "frames/cat_exhausted_03.png",
-        "frames/cat_exhausted_04.png"
+        "frames/tabby_exhausted_01.png",
+        "frames/tabby_exhausted_02.png",
+        "frames/tabby_exhausted_03.png",
+        "frames/tabby_exhausted_04.png"
       ],
       "frameDurationMs": 240
     }

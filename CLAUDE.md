@@ -32,7 +32,7 @@ cargo test --manifest-path src-tauri/Cargo.toml window::tests   # single module
 pnpm test:e2e:renderer        # wdio.browser.conf.ts
 pnpm test:e2e                  # wdio.conf.ts (native)
 
-python3 scripts/build-pet-packages.py   # regenerate bundled cat/corgi pet packages from docs/UI-plan/ art
+python3 scripts/build-pet-packages.py   # regenerate bundled tabby/corgi pet packages from docs/UI-plan/ art
 ```
 
 Coverage gate is 80% on branches/functions/lines/statements (`vite.config.ts`); `test:ci` enforces it.
@@ -49,7 +49,7 @@ Coverage gate is 80% on branches/functions/lines/statements (`vite.config.ts`); 
 
 - `collectors/` — provider collection. `claude.rs` (fixed HTTPS Claude Code OAuth usage endpoint), `codex.rs` (`codex -s read-only -a untrusted app-server` + JSON-RPC `initialize` handshake then `account/rateLimits/read`), `broker.rs` (read-only credential selection), `fallback.rs`, `wsl.rs`. Parsers are isolated, size/time-bounded, and fail with typed provider-scoped outcomes rather than propagating raw errors.
 - `refresh/` — one independent refresh **actor** per provider (`actor.rs`), the orchestrating `service.rs`, and `ipc.rs` (the Tauri command surface). Providers refresh independently; one failing collector must not stall the other.
-- `store/` — persistence: `settings.rs`, `history.rs`, `snapshots.rs`, `pets.rs`. Bundled cat/corgi pet packages install into the app-data pet directory on first launch (`install_bundled_pet_packages` in `lib.rs`), repairing/upgrading incomplete legacy installs.
+- `store/` — persistence: `settings.rs`, `history.rs`, `snapshots.rs`, `pets.rs`. Every package found under the bundled `resources/pets/` directory installs into the app-data pet directory on first launch (`install_bundled_pet_packages` in `lib.rs`), repairing/upgrading incomplete legacy installs and reclaiming retired ids (`RETIRED_PETS`). Shipping a new pet is a folder addition, not a code change. `PetPackageRepository::list` enumerates installed packages for the settings picker.
 - `window/` — display geometry & pointer policy (DPI conversion, clamping to nearest remaining display incl. negative coords, panel anchoring/flip).
 - `domain.rs` — normalized provider state shared across layers.
 
@@ -67,7 +67,8 @@ Coverage gate is 80% on branches/functions/lines/statements (`vite.config.ts`); 
 - **Privacy contract:** renderer DTOs and logs must exclude authorization values, raw provider bodies, account identifiers, and credential paths. CacheBite does not read browser cookies, rewrite credential files, or estimate quota from token counts. CI has secret/renderer-endpoint guards (`ci.yml`).
 - **Fixture vs production collector modes:** tests set `CACHEBITE_E2E_FIXTURES=1` to swap both collectors for deterministic _unavailable_ fixtures. The separate production-composition smoke runs the real composition with credentials absent and Codex pointed at a nonexistent path — it does not request a manual refresh. Keep these two modes distinct (`collector_mode_distinguishes_...` test in `lib.rs`).
 - **Unverified platform capabilities report `unavailable`**, never a provider failure. Fullscreen detection is currently reported unavailable.
-- **Pet manifest contract:** packages require a valid `idle` state; asset protocol scope is locked to `$APPDATA/pets/*/frames/*.png` (`tauri.conf.json`). `docs/UI-plan/` art is _source only_ — never bundled into a release directly; it flows through `scripts/build-pet-packages.py`.
+- **Pet manifest contract:** packages require a valid `idle` state; asset protocol scope is locked to `$APPDATA/pets/*/frames/*.png` (`tauri.conf.json`). Directory names must satisfy `is_valid_pet_id` or the installer skips them. `docs/UI-plan/` art is _source only_ — never bundled into a release directly; it flows through `scripts/build-pet-packages.py`.
+- **Pet selection is independent of the primary provider.** The primary provider chooses which usage data drives the ring; the pet is its own setting. Neither may silently rewrite the other.
 - **Codex `initialize` RPC requires `clientInfo{name,version}`** or the provider drops to error (stderr is nulled, so no debug logs surface).
 
 ## Authoritative docs

@@ -60,6 +60,7 @@ pub enum NativeCommand {
     GetSettings,
     GetHistory,
     GetPetPackage,
+    ListPetPackages,
     GetPlatformCapabilities,
     SavePosition,
     RefreshProvider,
@@ -89,6 +90,7 @@ pub fn command_allowed(window_label: &str, command: NativeCommand) -> bool {
                 | NativeCommand::GetSettings
                 | NativeCommand::GetHistory
                 | NativeCommand::GetPetPackage
+                | NativeCommand::ListPetPackages
                 | NativeCommand::GetPlatformCapabilities
                 | NativeCommand::RefreshProvider
                 | NativeCommand::UpdateSettings

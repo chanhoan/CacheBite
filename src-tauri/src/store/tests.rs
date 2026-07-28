@@ -542,7 +542,43 @@ fn selected_pet_id_rejects_traversal_uppercase_and_excessive_length() {
 
 #[test]
 fn default_settings_select_the_bundled_claude_pet() {
-    assert_eq!(Settings::default().selected_pet_id, "cat");
+    assert_eq!(Settings::default().selected_pet_id, "tabby");
+}
+
+#[test]
+fn retired_cat_pet_id_is_migrated_to_tabby_and_rewritten() {
+    let dir = TempDir::new().expect("temp dir");
+    fs::write(
+        dir.path().join("settings.json"),
+        r#"{"schema_version":3,"primary_provider":"claude","selected_pet_id":"cat","bubble_enabled":true,"start_at_login":false,"notification_enabled":false,"secondary_notification_enabled":false,"logical_position":{"x":0.0,"y":0.0}}"#,
+    )
+    .unwrap();
+
+    let loaded = SettingsRepository::new(dir.path()).load().unwrap();
+
+    assert_eq!(loaded.selected_pet_id, "tabby");
+    assert!(fs::read_to_string(dir.path().join("settings.json"))
+        .unwrap()
+        .contains("\"selected_pet_id\": \"tabby\""));
+}
+
+#[test]
+fn version_two_settings_carrying_the_retired_cat_pet_migrate_to_tabby() {
+    let dir = TempDir::new().expect("temp dir");
+    fs::write(
+        dir.path().join("settings.json"),
+        r#"{"schema_version":2,"primary_provider":"claude","selected_pet_id":"cat","bubble_enabled":true,"start_at_login":false,"notification_enabled":true,"logical_position":{"x":4.0,"y":8.0}}"#,
+    )
+    .unwrap();
+
+    let loaded = SettingsRepository::new(dir.path()).load().unwrap();
+
+    // The V2 upgrade rewrites the file, then re-reads it so the current-schema
+    // pass can repair the pet id the old file carried over.
+    assert_eq!(loaded.schema_version, 3);
+    assert_eq!(loaded.selected_pet_id, "tabby");
+    assert!(loaded.notification_enabled);
+    assert_eq!(loaded.logical_position, LogicalPosition { x: 4.0, y: 8.0 });
 }
 
 #[test]
@@ -617,4 +653,63 @@ fn pet_package_loader_returns_safe_asset_url_and_rejects_escaping_assets() {
     )
     .unwrap();
     assert!(PetPackageRepository::new(dir.path()).load("pet-2").is_err());
+}
+
+fn write_pet_package(pets_root: &Path, id: &str, display_name: &str) {
+    let root = pets_root.join(id);
+    fs::create_dir_all(root.join("frames")).unwrap();
+    fs::write(root.join("frames/idle.svg"), "<svg/>").unwrap();
+    let manifest = serde_json::json!({
+        "id": id,
+        "displayName": display_name,
+        "defaultSize": {"width": 128, "height": 128},
+        "animations": {"idle": {"type": "image", "source": "frames/idle.svg"}},
+        "states": {}
+    });
+    fs::write(
+        root.join("manifest.json"),
+        serde_json::to_vec(&manifest).unwrap(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn pet_listing_sorts_by_display_name_and_skips_unusable_packages() {
+    let dir = TempDir::new().expect("temp dir");
+    let pets = dir.path().join("pets");
+    write_pet_package(&pets, "tabby", "Tabby");
+    write_pet_package(&pets, "corgi", "Corgi");
+    // Unparseable manifest: skipped, never fatal.
+    fs::create_dir_all(pets.join("broken")).unwrap();
+    fs::write(pets.join("broken/manifest.json"), "not json").unwrap();
+    // Directory name that is not a legal pet id, e.g. an interrupted install.
+    fs::create_dir_all(pets.join(".corgi.installing")).unwrap();
+    // A stray file alongside the package directories.
+    fs::write(pets.join("README.txt"), "ignore me").unwrap();
+
+    let listed = PetPackageRepository::new(dir.path()).list().unwrap();
+
+    let entries: Vec<(&str, &str)> = listed
+        .iter()
+        .map(|pet| (pet.id.as_str(), pet.display_name.as_str()))
+        .collect();
+    assert_eq!(entries, vec![("corgi", "Corgi"), ("tabby", "Tabby")]);
+}
+
+#[test]
+fn pet_listing_is_empty_when_no_package_is_installed() {
+    let dir = TempDir::new().expect("temp dir");
+    fs::create_dir_all(dir.path().join("pets")).unwrap();
+
+    assert!(PetPackageRepository::new(dir.path())
+        .list()
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn pet_listing_fails_when_the_install_directory_is_missing() {
+    let dir = TempDir::new().expect("temp dir");
+
+    assert!(PetPackageRepository::new(dir.path()).list().is_err());
 }

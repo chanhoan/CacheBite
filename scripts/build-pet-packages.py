@@ -21,7 +21,9 @@ except ImportError:  # pragma: no cover - fallback for environments without the 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = PROJECT_ROOT / "docs" / "UI-plan" / "assets" / "pet"
 OUTPUT_ROOT = PROJECT_ROOT / "src-tauri" / "resources" / "pets"
-PET_SOURCES = {"cat": "cat", "corgi": "corgi"}
+# Package id -> source art directory. The `tabby` package is built from the
+# `cat` artwork: the package was renamed, the source images were not.
+PET_SOURCES = {"tabby": "cat", "corgi": "corgi"}
 STATE_SOURCES = {
     "idle": "idle",
     "idle_warn": "warn",

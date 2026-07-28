@@ -10,6 +10,7 @@
     type AppGateway,
     type AppSettings,
     type CollectorModeDiagnostic,
+    type PetSummaryModel,
     type PlatformCapabilities,
     type ProviderBackendStateWire,
   } from './lib/api/gateway';
@@ -30,7 +31,6 @@
     toProviderPresentation,
     toSettingsStoreState,
   } from './lib/state/presentation';
-  import type { Provider } from './lib/contracts/domain';
   import {
     beginPointer,
     updatePointer,
@@ -66,10 +66,6 @@
   }: { gateway?: AppGateway; notificationAdapter?: NotificationAdapter } =
     $props();
   const windowLabel = query.get('window') ?? 'overlay';
-  const PROVIDER_PET: Record<Provider, string> = {
-    claude: 'cat',
-    codex: 'corgi',
-  };
   const providersStore = createProvidersStore(
     (provider) => void gateway.refreshProvider(provider),
   );
@@ -83,7 +79,7 @@
     // Must match the Rust default (`store/settings.rs`). 'idle' is an animation
     // key, not a package id, so a getSettings() failure used to guarantee a
     // failed pet load.
-    selectedPetId: 'cat',
+    selectedPetId: 'tabby',
     bubblesEnabled: true,
     startAtLogin: false,
     notificationsEnabled: false,
@@ -106,6 +102,7 @@
     assetBaseUrl: string;
   } | null>(null);
   let petPackageError = $state(false);
+  let petOptions = $state<readonly PetSummaryModel[]>([]);
   let platformCapabilities = $state<PlatformCapabilities | null>(null);
   let notificationState = $state<NotificationPolicyState>(
     createNotificationPolicy(),
@@ -276,6 +273,12 @@
     }
   };
 
+  const loadPetOptions = async () => {
+    // Enumeration is presentation-only: a failure leaves the picker showing
+    // just the active pet rather than blocking the panel.
+    petOptions = await gateway.listPetPackages().catch(() => []);
+  };
+
   const registerListeners = async (attempt: number) => {
     try {
       const providerUnlisten = await traceAsync(
@@ -365,7 +368,8 @@
       const [, loadedCapabilities] = await Promise.all([
         windowLabel === 'overlay'
           ? traceAsync('loadPetPackage', loadPetPackage())
-          : Promise.resolve(),
+          : // `list_pet_packages` is authorized for the panel only.
+            loadPetOptions(),
         gateway.getPlatformCapabilities().catch(() => null),
       ]);
       if (!mounted || attempt !== startupAttempt) return;
@@ -500,14 +504,8 @@
       .catch(() => undefined)
       .then(async () => {
         let merged = { ...appSettings, ...next };
-        const primaryChanged =
-          next.primaryProvider !== appSettings.primaryProvider;
-        if (primaryChanged) {
-          merged = {
-            ...merged,
-            selectedPetId: PROVIDER_PET[next.primaryProvider],
-          };
-        }
+        // The pet is chosen independently of the primary provider: changing
+        // one must never silently rewrite the other.
         if (next.notificationsEnabled !== appSettings.notificationsEnabled) {
           notificationState = await serializeNotification((current) =>
             configureNotifications(
@@ -526,9 +524,9 @@
         try {
           appSettings = await gateway.updateSettings(merged);
           settingsSaveFailed = false;
-          if (primaryChanged && windowLabel === 'overlay') {
-            await loadPetPackage();
-          }
+          // No overlay reload here: `changeSettings` only ever runs in the
+          // panel window (`update_settings` is panel-authorized). The overlay
+          // picks the change up through the `settings-updated` listener.
         } catch {
           const reconciled = await serializeNotification((current) =>
             configureNotifications(
@@ -602,6 +600,7 @@
           theme={themePreference}
           autostartAvailable={platformCapabilities?.autostart.status !==
             'unavailable'}
+          pets={petOptions}
           onChange={(settings) => void changeSettings(settings)}
           onThemeChange={changeTheme}
         />

@@ -9,7 +9,7 @@ use crate::{
     domain::{FailureClass, Provider, ProviderUsageSnapshot, UnavailableReason},
     store::{
         HistoryRepository, HistoryStore, LogicalPosition, PetPackage, PetPackageRepository,
-        Settings, SettingsRepository,
+        PetSummary, Settings, SettingsRepository,
     },
     window::{command_allowed, CapabilityDiagnostic, NativeCommand, PlatformCapabilities},
 };
@@ -180,6 +180,15 @@ pub fn get_pet_package(
         .map_err(|_| IpcError::PersistenceUnavailable)?
         .selected_pet_id;
     pets.load(&id).map_err(|_| IpcError::PersistenceUnavailable)
+}
+
+#[tauri::command]
+pub fn list_pet_packages(
+    window: tauri::WebviewWindow,
+    pets: State<'_, PetPackageRepository>,
+) -> Result<Vec<PetSummary>, IpcError> {
+    authorize(&window, NativeCommand::ListPetPackages)?;
+    pets.list().map_err(|_| IpcError::PersistenceUnavailable)
 }
 
 #[tauri::command]

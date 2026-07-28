@@ -8,7 +8,7 @@ import { toProviderPresentation, toSettingsStoreState } from './presentation';
 const settings: AppSettings = {
   schemaVersion: 3,
   primaryProvider: 'claude',
-  selectedPetId: 'cat',
+  selectedPetId: 'tabby',
   bubblesEnabled: true,
   startAtLogin: false,
   notificationsEnabled: true,
@@ -33,6 +33,7 @@ describe('renderer presentation projections', () => {
   it('selects only the settings-store fields from persisted settings', () => {
     expect(toSettingsStoreState(settings)).toEqual({
       primaryProvider: 'claude',
+      selectedPetId: 'tabby',
       bubblesEnabled: true,
       startAtLogin: false,
       notificationsEnabled: true,
