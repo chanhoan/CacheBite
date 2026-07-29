@@ -139,6 +139,12 @@ ProviderUiSnapshot = ProviderUsageSnapshot +
 - `unknown` 창은 중립 토큰(`sev.unknown`)의 비채움 트랙만 표시.
 - `stale`이면 링 색을 유지한 채 불투명도를 낮춘다 (시맨틱: `overlay.stale-dim`).
 
+확정 시각 토큰은 라이트/다크 순서로 `ok` `#22c55e`/`#4ade80`, `warn`
+`#f59e0b`/`#fbbf24`, `critical` `#f97316`/`#fb923c`, `exhausted`
+`#dc2626`/`#f87171`, `unknown` `#c3c8ce`/`#4b5563`이며,
+`overlay.stale-dim`은 `0.42`다. 실제 사용처는 `src/lib/styles/tokens.css`의
+`--sev-*`와 `--overlay-stale-dim` 변수를 단일 원본으로 삼는다.
+
 ### 4.2 시스템 배지
 
 `system != active`일 때 링을 숨기고 펫 모서리에 단일 배지를 표시한다.
@@ -187,7 +193,9 @@ ProviderUiSnapshot = ProviderUsageSnapshot +
 - 탭별 본문은 해당 provider의 `PetUiState` 파생 규칙을 그대로 재사용한다 (주 provider 여부와 무관하게 동일한 도출 함수).
 - "지금 새로고침"은 아키텍처의 디바운스 정책을 따르고, 디바운스 중에는 비활성화 표시한다.
 - 패널 자체의 로딩 스켈레톤은 `loading`일 때만 사용한다. 백그라운드 갱신 중에는 기존 값 유지.
-- 설정 항목 (MVP): 주 provider 선택, 말풍선 켜기/끄기, 로그인 시 시작.
+- 설정 항목: 테마(시스템/라이트/다크), 네이티브 알림, 보조 provider 알림, 주 provider 선택, **펫 선택**, 말풍선 켜기/끄기, 로그인 시 시작.
+- 주 provider 선택은 게이지에 표시할 사용량 출처만 정한다. 펫 선택은 그와 독립된 항목이며, 한쪽을 바꿔도 다른 쪽은 유지된다.
+- 펫 목록은 설치된 패키지를 네이티브가 열거해 채운다(`list_pet_packages`). 열거가 실패하면 현재 선택된 펫만 표시해 활성 펫이 화면에서 사라지지 않게 한다.
 
 ## 6. GIF 에셋 계약 (상태별)
 
@@ -200,9 +208,11 @@ ProviderUiSnapshot = ProviderUsageSnapshot +
 | `idle_critical` | 선택 | `pet_mood == critical` |
 | `idle_exhausted` | 선택 | `pet_mood == exhausted` |
 | `sleep` | 선택 | `system ∈ {unavailable, offline}` |
-| `dragging` | 선택 | 드래그 중 |
+| `dragging` | 선택 | 드래그 중. 패키지가 이 키를 선언한 경우에만 요청한다 |
 
 폴백 체인: **요청 상태 키 → `idle`.** 중간 단계 폴백(예: critical→warn)은 두지 않는다 — 제작자가 일부만 만들어도 결과가 예측 가능해야 한다.
+
+`dragging`은 예외적으로 요청 단계에서 걸러진다. 선언되지 않은 `dragging`을 요청하면 드래그가 끝날 때까지 무드 신호가 기본 `idle`로 덮여 사라지므로, 선언되지 않았다면 애초에 요청하지 않고 사용량 기반 키를 유지한다. 폴백 체인 자체는 그대로다.
 
 표에 없는 시스템 상태(`auth_required`, `error`, `loading`)는 항상 `idle`을 요청한다. 이 상태들의 시각 신호는 GIF가 아니라 §4.2의 시스템 배지가 담당한다.
 

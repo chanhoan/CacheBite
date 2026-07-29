@@ -1,0 +1,118 @@
+name: Native smoke
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-fixture:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      CACHEBITE_E2E_FIXTURES: '1'
+      CACHEBITE_EXPECTED_COLLECTOR_MODE: fixture
+      CACHEBITE_NOTIFICATION_SMOKE: 'capability-only-no-prompt'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with: { version: 10.15.1 }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: 22, cache: pnpm }
+      - uses: dtolnay/rust-toolchain@46511b1c83438f0dd37c02d843619ece5a4abb5b # 1.97.1
+      - run: pnpm install --frozen-lockfile
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --all-features
+      - name: Build native smoke binary
+        run: pnpm tauri build --debug --no-bundle --features webdriver
+      - run: pnpm test:e2e
+
+  linux-display-fixture:
+    strategy:
+      fail-fast: false
+      matrix:
+        display: [x11, wayland]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CACHEBITE_E2E_FIXTURES: '1'
+      CACHEBITE_EXPECTED_COLLECTOR_MODE: fixture
+      CACHEBITE_NOTIFICATION_SMOKE: 'capability-only-no-prompt'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with: { version: 10.15.1 }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: 22, cache: pnpm }
+      - uses: dtolnay/rust-toolchain@46511b1c83438f0dd37c02d843619ece5a4abb5b # 1.97.1
+      - name: Install native display prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xvfb weston
+      - run: pnpm install --frozen-lockfile
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --all-features
+      - run: pnpm tauri build --debug --no-bundle --features webdriver
+      - name: X11 native smoke
+        if: matrix.display == 'x11'
+        run: xvfb-run -a pnpm test:e2e
+      - name: Wayland native smoke
+        if: matrix.display == 'wayland'
+        env:
+          XDG_RUNTIME_DIR: /tmp/cachebite-wayland
+          WAYLAND_DISPLAY: wayland-cachebite
+        run: |
+          mkdir -p "$XDG_RUNTIME_DIR"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          weston --backend=headless-backend.so --socket="$WAYLAND_DISPLAY" --idle-time=0 &
+          pnpm test:e2e
+
+  production-composition:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      CACHEBITE_EXPECTED_COLLECTOR_MODE: production
+      CACHEBITE_NOTIFICATION_SMOKE: 'capability-only-no-prompt'
+      # The production composition is real, but CI intentionally supplies no
+      # provider credentials and never requests a manual refresh.
+      CLAUDE_CONFIG_DIR: /tmp/cachebite-no-claude-credentials
+      CLAUDE_CODE_OAUTH_TOKEN: ''
+      CACHEBITE_CODEX_PATH: /tmp/cachebite-no-codex
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with: { version: 10.15.1 }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: 22, cache: pnpm }
+      - uses: dtolnay/rust-toolchain@46511b1c83438f0dd37c02d843619ece5a4abb5b # 1.97.1
+      - name: Install native display prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xvfb
+      - run: pnpm install --frozen-lockfile
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --all-features
+      - run: pnpm tauri build --debug --no-bundle --features webdriver
+      - name: Production-composition native smoke (Linux)
+        if: runner.os == 'Linux'
+        env:
+          HOME: /tmp/cachebite-production-home
+          XDG_DATA_HOME: /tmp/cachebite-production-home
+        run: |
+          mkdir -p "$HOME"
+          xvfb-run -a pnpm test:e2e
+      - name: Production-composition native smoke (macOS)
+        if: runner.os != 'Linux'
+        env:
+          HOME: /tmp/cachebite-production-home
+        run: |
+          mkdir -p "$HOME"
+          pnpm test:e2e

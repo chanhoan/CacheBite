@@ -1,0 +1,57 @@
+{
+  "id": "tabby",
+  "displayName": "Tabby",
+  "version": 1,
+  "defaultSize": {
+    "width": 128,
+    "height": 128
+  },
+  "animations": {
+    "idle": {
+      "type": "frames",
+      "frames": [
+        "frames/tabby_idle_01.png",
+        "frames/tabby_idle_02.png",
+        "frames/tabby_idle_03.png",
+        "frames/tabby_idle_04.png"
+      ],
+      "frameDurationMs": 240
+    },
+    "idle_warn": {
+      "type": "frames",
+      "frames": [
+        "frames/tabby_warn_01.png",
+        "frames/tabby_warn_02.png",
+        "frames/tabby_warn_03.png",
+        "frames/tabby_warn_04.png"
+      ],
+      "frameDurationMs": 240
+    },
+    "idle_critical": {
+      "type": "frames",
+      "frames": [
+        "frames/tabby_critical_01.png",
+        "frames/tabby_critical_02.png",
+        "frames/tabby_critical_03.png",
+        "frames/tabby_critical_04.png"
+      ],
+      "frameDurationMs": 240
+    },
+    "idle_exhausted": {
+      "type": "frames",
+      "frames": [
+        "frames/tabby_exhausted_01.png",
+        "frames/tabby_exhausted_02.png",
+        "frames/tabby_exhausted_03.png",
+        "frames/tabby_exhausted_04.png"
+      ],
+      "frameDurationMs": 240
+    }
+  },
+  "states": {
+    "idle": "idle",
+    "idle_warn": "idle_warn",
+    "idle_critical": "idle_critical",
+    "idle_exhausted": "idle_exhausted"
+  }
+}

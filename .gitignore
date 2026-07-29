@@ -50,3 +50,13 @@ coverage/
 
 # Misc build
 *.tsbuildinfo
+artifacts/
+.tmp-msi-build/
+
+# Vite temp config transpile output
+vite.config.*.timestamp-*
+vite.config.*.timestamp_*
+
+# Lint / check caches
+.eslintcache
+.svelte-check-cache
