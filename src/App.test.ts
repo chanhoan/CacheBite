@@ -876,6 +876,19 @@ describe('application composition root', () => {
     }
   });
 
+  it('anchors the exhausted toast below the usage ring inside the overlay stack', async () => {
+    const { gateway, emit } = fixture();
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+    await screen.findByLabelText('CacheBite pet status');
+    emit(active('claude', 2, 100));
+
+    const toast = await screen.findByTestId('overlay-toast');
+    const stack = toast.closest('.overlay-stack');
+    expect(stack).not.toBeNull();
+    expect(stack?.getAttribute('data-toast-visible')).toBe('true');
+    expect(stack?.querySelector('[data-testid="usage-ring"]')).not.toBeNull();
+  });
+
   it('dismisses a clicked speech bubble without opening the panel', async () => {
     const { gateway, emit } = fixture();
     render(App, { props: { gateway, notificationAdapter: notifications } });

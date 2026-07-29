@@ -39,7 +39,6 @@ export const rendererFixtureGateway: AppGateway = {
     claude: provider('claude'),
     codex: provider('codex'),
   }),
-  listenProviderStates: async () => () => undefined,
   getSettings: async () => ({
     schemaVersion: 3,
     primaryProvider: 'claude',
@@ -50,6 +49,32 @@ export const rendererFixtureGateway: AppGateway = {
     secondaryNotificationsEnabled: false,
     logicalPosition: { x: 0, y: 0 },
   }),
+  listenProviderStates: async (next) => {
+    if (new URLSearchParams(window.location.search).get('toast') === 'layout') {
+      queueMicrotask(() => {
+        const exhausted = provider('claude');
+        const snapshot = exhausted.snapshot;
+
+        if (!snapshot || !snapshot.session) {
+          return;
+        }
+
+        next({
+          ...exhausted,
+          revision: 2,
+          snapshot: {
+            ...snapshot,
+            revision: 2,
+            session: {
+              ...snapshot.session,
+              used_percent: 100,
+            },
+          },
+        });
+      });
+    }
+    return () => undefined;
+  },
   listenSettings: async () => () => undefined,
   getPetPackage: async () => ({
     manifest: {
