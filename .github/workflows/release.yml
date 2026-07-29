@@ -67,6 +67,58 @@ jobs:
             SHA256SUMS.txt
           if-no-files-found: error
 
+  # Tag pushes collect the platform artifacts into a single GitHub release so
+  # testers can download without a GitHub account. The release is always a
+  # draft: publishing stays a deliberate human action, and nothing is public
+  # until someone reviews the attached installers.
+  publish:
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: artifacts
+      - name: Collect installers
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name '*.msi' -o -name '*.exe' -o -name '*.dmg' -o -name '*.AppImage' \) -exec cp {} release/ \;
+          test -n "$(ls -A release)" || { echo "no installers were produced"; exit 1; }
+          # Recomputed here rather than merged from the per-platform files: the
+          # Windows job records absolute runner paths, so a merge would ship
+          # checksums nobody can verify against a downloaded file name.
+          (cd release && sha256sum -- * > ../SHA256SUMS.txt)
+          mv SHA256SUMS.txt release/
+          cat release/SHA256SUMS.txt
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # A tag with a hyphen is a pre-release by semver (v0.1.0-beta.1).
+          case "$TAG" in *-*) PRERELEASE=--prerelease ;; *) PRERELEASE= ;; esac
+          cat > notes.md <<'NOTES'
+          Installers are **not code-signed**. Windows SmartScreen and macOS
+          Gatekeeper will warn or block on first launch — `docs/beta-testing.md`
+          in this repository has the per-platform steps, what to report, and
+          what never to paste into an issue.
+
+          Verify a download against `SHA256SUMS.txt` before installing.
+
+          CacheBite has no auto-updater: moving to a newer build means
+          installing it over the old one.
+          NOTES
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --notes-file notes.md \
+            --draft \
+            $PRERELEASE \
+            release/*
+
   signed-notarized-macos:
     if: github.event_name == 'workflow_dispatch' && inputs.production_macos_signing
     runs-on: macos-latest
