@@ -22,7 +22,12 @@ export function createInteractionStore() {
   return {
     subscribe,
     setDragging(dragging: boolean) {
-      update((state) => ({ ...state, dragging }));
+      // Every proof that a gesture ended routes through one release path, so
+      // the same value can arrive two or three times per drop. Keep the same
+      // reference when nothing changed instead of re-rendering the overlay.
+      update((state) =>
+        state.dragging === dragging ? state : { ...state, dragging },
+      );
     },
     setFullscreen(fullscreen: boolean) {
       update((state) => ({ ...state, fullscreen }));

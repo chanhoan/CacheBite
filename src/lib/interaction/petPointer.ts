@@ -11,10 +11,6 @@ export interface PetPointerState {
   readonly dragging: boolean;
 }
 
-export type PointerRelease =
-  | { readonly kind: 'toggle_panel' }
-  | { readonly kind: 'finish_drag'; readonly position: PointerPoint };
-
 export function beginPointer(origin: PointerPoint): PetPointerState {
   return { origin: { ...origin }, current: { ...origin }, dragging: false };
 }
@@ -34,8 +30,12 @@ export function updatePointer(
   };
 }
 
-export function releasePointer(state: PetPointerState): PointerRelease {
-  return state.dragging
-    ? { kind: 'finish_drag', position: { ...state.current } }
-    : { kind: 'toggle_panel' };
+/**
+ * A native window drag (`startDragging()`) hands the mouse loop to the OS, so
+ * the webview may never receive `pointerup` for that gesture. Any later
+ * pointer event with no button held is proof the gesture ended, and is the
+ * signal that releases the drag latch when `pointerup` was swallowed.
+ */
+export function pointerButtonsReleased(buttons: number): boolean {
+  return buttons === 0;
 }

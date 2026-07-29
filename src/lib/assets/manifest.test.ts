@@ -147,18 +147,116 @@ describe('idle animation resolution', () => {
 
 describe('v1.1 animation resolution', () => {
   it.each([
-    [{ system: 'auth_required', mood: 'exhausted', dragging: true }, 'idle'],
-    [{ system: 'error', mood: 'critical', dragging: true }, 'idle'],
-    [{ system: 'loading', mood: 'warn', dragging: true }, 'idle'],
-    [{ system: 'offline', mood: 'critical', dragging: false }, 'sleep'],
-    [{ system: 'unavailable', mood: 'warn', dragging: true }, 'dragging'],
     [
-      { system: 'active', mood: 'exhausted', dragging: false },
+      {
+        system: 'auth_required',
+        mood: 'exhausted',
+        dragging: true,
+        draggingAvailable: true,
+      },
+      'idle',
+    ],
+    [
+      {
+        system: 'error',
+        mood: 'critical',
+        dragging: true,
+        draggingAvailable: true,
+      },
+      'idle',
+    ],
+    [
+      {
+        system: 'loading',
+        mood: 'warn',
+        dragging: true,
+        draggingAvailable: true,
+      },
+      'idle',
+    ],
+    [
+      {
+        system: 'offline',
+        mood: 'critical',
+        dragging: false,
+        draggingAvailable: true,
+      },
+      'sleep',
+    ],
+    [
+      {
+        system: 'unavailable',
+        mood: 'warn',
+        dragging: true,
+        draggingAvailable: true,
+      },
+      'dragging',
+    ],
+    [
+      {
+        system: 'unavailable',
+        mood: 'warn',
+        dragging: true,
+        draggingAvailable: false,
+      },
+      'sleep',
+    ],
+    // A package without a `dragging` asset must keep signalling usage instead
+    // of silently falling back to bare `idle` for the whole gesture.
+    [
+      {
+        system: 'active',
+        mood: 'critical',
+        dragging: true,
+        draggingAvailable: false,
+      },
+      'idle_critical',
+    ],
+    [
+      {
+        system: 'active',
+        mood: 'critical',
+        dragging: true,
+        draggingAvailable: true,
+      },
+      'dragging',
+    ],
+    [
+      {
+        system: 'active',
+        mood: 'exhausted',
+        dragging: false,
+        draggingAvailable: false,
+      },
       'idle_exhausted',
     ],
-    [{ system: 'active', mood: 'critical', dragging: false }, 'idle_critical'],
-    [{ system: 'active', mood: 'warn', dragging: false }, 'idle_warn'],
-    [{ system: 'active', mood: 'ok', dragging: false }, 'idle'],
+    [
+      {
+        system: 'active',
+        mood: 'critical',
+        dragging: false,
+        draggingAvailable: false,
+      },
+      'idle_critical',
+    ],
+    [
+      {
+        system: 'active',
+        mood: 'warn',
+        dragging: false,
+        draggingAvailable: false,
+      },
+      'idle_warn',
+    ],
+    [
+      {
+        system: 'active',
+        mood: 'ok',
+        dragging: false,
+        draggingAvailable: false,
+      },
+      'idle',
+    ],
   ] as const)('selects priority for %o', (context, expected) => {
     expect(requestedAnimationKey(context)).toBe(expected);
   });

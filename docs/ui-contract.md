@@ -208,9 +208,11 @@ ProviderUiSnapshot = ProviderUsageSnapshot +
 | `idle_critical` | 선택 | `pet_mood == critical` |
 | `idle_exhausted` | 선택 | `pet_mood == exhausted` |
 | `sleep` | 선택 | `system ∈ {unavailable, offline}` |
-| `dragging` | 선택 | 드래그 중 |
+| `dragging` | 선택 | 드래그 중. 패키지가 이 키를 선언한 경우에만 요청한다 |
 
 폴백 체인: **요청 상태 키 → `idle`.** 중간 단계 폴백(예: critical→warn)은 두지 않는다 — 제작자가 일부만 만들어도 결과가 예측 가능해야 한다.
+
+`dragging`은 예외적으로 요청 단계에서 걸러진다. 선언되지 않은 `dragging`을 요청하면 드래그가 끝날 때까지 무드 신호가 기본 `idle`로 덮여 사라지므로, 선언되지 않았다면 애초에 요청하지 않고 사용량 기반 키를 유지한다. 폴백 체인 자체는 그대로다.
 
 표에 없는 시스템 상태(`auth_required`, `error`, `loading`)는 항상 `idle`을 요청한다. 이 상태들의 시각 신호는 GIF가 아니라 §4.2의 시스템 배지가 담당한다.
 
