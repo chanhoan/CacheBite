@@ -33,6 +33,7 @@
   } from './lib/state/presentation';
   import {
     beginPointer,
+    pointerButtonsReleased,
     updatePointer,
     type PetPointerState,
   } from './lib/interaction/petPointer';
@@ -97,6 +98,11 @@
   };
   let panelShell = $state<HTMLElement | null>(null);
   let pointer = $state<PetPointerState | null>(null);
+  // `pointer` is replaced with a fresh object on every move, so an effect that
+  // read it directly would tear down and re-register its listeners on every
+  // frame of a drag. The window-level safety net only cares whether a gesture
+  // is open, and a derived boolean wakes dependents only when that flips.
+  const gestureOpen = $derived(pointer !== null);
   let petPackage = $state<{
     manifest: PetManifest;
     assetBaseUrl: string;
@@ -446,6 +452,31 @@
     return () => window.clearTimeout(timer);
   });
 
+  // The pet surface can lose the end of a gesture: `startDragging()` gives the
+  // mouse loop to the window manager, and on Windows the accompanying
+  // `ReleaseCapture()` breaks the captured-element path outright. Without this
+  // net the drag latch stays set for the rest of the session, pinning the pet
+  // to bare `idle` and suppressing every bubble. Armed only while a gesture is
+  // open, so idle overlays add no listeners, and the registration happens once
+  // per gesture rather than once per move (`gestureOpen`).
+  $effect(() => {
+    if (windowLabel !== 'overlay' || !gestureOpen) return;
+    const end = () => endPointerInteraction();
+    const moved = (event: PointerEvent) => {
+      if (pointerButtonsReleased(event.buttons)) endPointerInteraction();
+    };
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+    window.addEventListener('pointermove', moved);
+    window.addEventListener('blur', end);
+    return () => {
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+      window.removeEventListener('pointermove', moved);
+      window.removeEventListener('blur', end);
+    };
+  });
+
   const panelProviders = $derived({
     claude: toProviderPresentation($providersStore.claude, nowMs),
     codex: toProviderPresentation($providersStore.codex, nowMs),
@@ -464,6 +495,8 @@
             system: primaryUi.system,
             mood: primaryUi.petMood,
             dragging: $interactionStore.dragging,
+            draggingAvailable:
+              petPackage.manifest.states.dragging !== undefined,
           }),
         )
       : null,
@@ -544,7 +577,17 @@
     settingsQueue = operation.catch(() => undefined);
     return operation;
   };
+  // The single place the drag latch is released. `startDragging()` hands the
+  // mouse loop to the OS, so `pointerup` on the surface is not guaranteed to
+  // arrive — every signal that proves the gesture ended routes through here.
+  const endPointerInteraction = () => {
+    pointer = null;
+    interactionStore.setDragging(false);
+  };
   const pointerDown = (event: PointerEvent) => {
+    // Last-resort recovery: if every release signal was swallowed by the OS
+    // drag loop, the next gesture still starts from a clean latch.
+    endPointerInteraction();
     (
       event.currentTarget as EventTarget & {
         setPointerCapture?: (pointerId: number) => void;
@@ -554,13 +597,19 @@
   };
   const pointerMove = (event: PointerEvent) => {
     if (!pointer) return;
+    if (pointerButtonsReleased(event.buttons)) {
+      endPointerInteraction();
+      return;
+    }
     const wasDragging = pointer.dragging;
     pointer = updatePointer(pointer, { x: event.clientX, y: event.clientY });
     interactionStore.setDragging(pointer.dragging);
     if (!wasDragging && pointer.dragging) void gateway.startDragging();
   };
   const pointerUp = (event: PointerEvent) => {
-    if (!pointer) return;
+    // Capture is released before the latch is consulted: a window-level signal
+    // may have already cleared `pointer`, and an early return here would leave
+    // the capture to the browser's implicit release.
     const surface = event.currentTarget as EventTarget & {
       hasPointerCapture?: (pointerId: number) => boolean;
       releasePointerCapture?: (pointerId: number) => void;
@@ -568,8 +617,7 @@
     if (surface.hasPointerCapture?.(event.pointerId)) {
       surface.releasePointerCapture?.(event.pointerId);
     }
-    pointer = null;
-    interactionStore.setDragging(false);
+    endPointerInteraction();
   };
   const pointerCancel = (event: PointerEvent) => pointerUp(event);
 </script>

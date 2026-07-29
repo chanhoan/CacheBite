@@ -37,6 +37,42 @@ const active = (
   reset_pending: false,
 });
 
+// jsdom has no `PointerEvent`, so gestures are driven with plain events that
+// carry the fields the overlay reads. `buttons` defaults to a held primary
+// button: a real pointer event always carries a number, and leaving it
+// undefined would let `pointerButtonsReleased` pass for the wrong reason.
+const pointerEvent = (type: string, x: number, y: number, buttons = 1) => {
+  const event = new Event(type, { bubbles: true });
+  Object.defineProperties(event, {
+    clientX: { value: x },
+    clientY: { value: y },
+    buttons: { value: buttons },
+  });
+  return event;
+};
+
+// A package with a distinct asset per key. The shared fixture declares only
+// `idle`, so every key would resolve to the same src and a stuck drag latch
+// would be invisible in the rendered image — `dragging` above all.
+const distinctPetPackage: Awaited<ReturnType<AppGateway['getPetPackage']>> = {
+  manifest: {
+    id: 'fixture-pet',
+    displayName: 'Fixture Pet',
+    defaultSize: { width: 160, height: 160 },
+    animations: {
+      idle: { type: 'image', source: 'idle.svg' },
+      idle_critical: { type: 'image', source: 'idle_critical.svg' },
+      dragging: { type: 'image', source: 'dragging.svg' },
+    },
+    states: {
+      idle: 'idle',
+      idle_critical: 'idle_critical',
+      dragging: 'dragging',
+    },
+  },
+  assetBaseUrl: 'asset://localhost/pets/fixture-pet/',
+};
+
 const fixture = () => {
   let listener: (state: ProviderBackendStateWire) => void = () => undefined;
   let settingsListener: (
@@ -351,18 +387,91 @@ describe('application composition root', () => {
     const { gateway } = fixture();
     render(App, { props: { gateway, notificationAdapter: notifications } });
     const overlay = await screen.findByTestId('overlay-pointer-surface');
-    const pointer = (type: string, x: number, y: number) => {
-      const event = new Event(type, { bubbles: true });
-      Object.defineProperties(event, {
-        clientX: { value: x },
-        clientY: { value: y },
-      });
-      return event;
-    };
-    await fireEvent(overlay, pointer('pointerdown', 10, 10));
-    await fireEvent(overlay, pointer('pointermove', 20, 10));
-    await fireEvent(overlay, pointer('pointermove', 30, 10));
+    await fireEvent(overlay, pointerEvent('pointerdown', 10, 10));
+    await fireEvent(overlay, pointerEvent('pointermove', 20, 10));
+    await fireEvent(overlay, pointerEvent('pointermove', 30, 10));
     expect(gateway.startDragging).toHaveBeenCalledOnce();
+  });
+
+  // Drives a gesture past the drag threshold and leaves it there: from this
+  // point the OS drag loop owns the mouse and no pointerup reaches the
+  // surface. Each caller then exercises a different release signal.
+  const dragUntilLatched = async () => {
+    const { gateway } = fixture();
+    vi.mocked(gateway.getPetPackage).mockResolvedValue(distinctPetPackage);
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+    const overlay = await screen.findByTestId('overlay-pointer-surface');
+    expect(
+      (screen.getByAltText('Fixture Pet') as HTMLImageElement).src,
+    ).toContain('idle_critical.svg');
+    await fireEvent(overlay, pointerEvent('pointerdown', 10, 10));
+    await fireEvent(overlay, pointerEvent('pointermove', 40, 10));
+    expect(gateway.startDragging).toHaveBeenCalledOnce();
+    await waitFor(() =>
+      expect(
+        (screen.getByAltText('Fixture Pet') as HTMLImageElement).src,
+      ).toContain('dragging.svg'),
+    );
+    return { gateway, overlay };
+  };
+
+  const expectLatchReleased = () =>
+    waitFor(() =>
+      expect(
+        (screen.getByAltText('Fixture Pet') as HTMLImageElement).src,
+      ).toContain('idle_critical.svg'),
+    );
+
+  it('restores the usage animation when the native drag swallows pointerup', async () => {
+    await dragUntilLatched();
+    // The first button-free move after the drop must release the latch on its
+    // own.
+    await fireEvent(window, pointerEvent('pointermove', 60, 10, 0));
+    await expectLatchReleased();
+  });
+
+  it('releases the drag latch when the overlay loses focus after the drop', async () => {
+    await dragUntilLatched();
+    // Dropping the pet and clicking another window: no pointer event comes
+    // back to the overlay at all, so `blur` is the only proof the gesture
+    // ended.
+    await fireEvent(window, new Event('blur'));
+    await expectLatchReleased();
+  });
+
+  it('starts the next gesture from a clean latch when every release signal was swallowed', async () => {
+    const { overlay } = await dragUntilLatched();
+    // Last-resort recovery: with no window-level signal arriving at all, the
+    // next pointerdown still has to clear the latch before opening a gesture.
+    await fireEvent(overlay, pointerEvent('pointerdown', 10, 10));
+    await expectLatchReleased();
+  });
+
+  it('keeps the usage animation during a drag when the package has no dragging asset', async () => {
+    const { gateway } = fixture();
+    vi.mocked(gateway.getPetPackage).mockResolvedValue({
+      manifest: {
+        id: 'fixture-pet',
+        displayName: 'Fixture Pet',
+        defaultSize: { width: 160, height: 160 },
+        animations: {
+          idle: { type: 'image', source: 'idle.svg' },
+          idle_critical: { type: 'image', source: 'idle_critical.svg' },
+        },
+        states: { idle: 'idle', idle_critical: 'idle_critical' },
+      },
+      assetBaseUrl: 'asset://localhost/pets/fixture-pet/',
+    });
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+    const overlay = await screen.findByTestId('overlay-pointer-surface');
+    await fireEvent(overlay, pointerEvent('pointerdown', 10, 10));
+    await fireEvent(overlay, pointerEvent('pointermove', 40, 10));
+    // Without this the test passes even if both handlers do nothing: the
+    // initial src is already the asserted one, so the drag has to be proven.
+    expect(gateway.startDragging).toHaveBeenCalledOnce();
+    expect(
+      (screen.getByAltText('Fixture Pet') as HTMLImageElement).src,
+    ).toContain('idle_critical.svg');
   });
 
   it('persists settings through the typed gateway from the settings view', async () => {

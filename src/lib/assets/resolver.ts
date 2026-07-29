@@ -25,6 +25,13 @@ export interface AnimationContext {
     | 'loading';
   readonly mood: 'ok' | 'warn' | 'critical' | 'exhausted';
   readonly dragging: boolean;
+  /**
+   * Whether the loaded package declares a `dragging` state. Requesting a key
+   * the package does not declare resolves to bare `idle`, which would erase
+   * the usage mood for the whole gesture — so ask for it only when the
+   * package can actually render it.
+   */
+  readonly draggingAvailable: boolean;
 }
 
 export function requestedAnimationKey(
@@ -36,7 +43,7 @@ export function requestedAnimationKey(
     context.system === 'loading'
   )
     return 'idle';
-  if (context.dragging) return 'dragging';
+  if (context.dragging && context.draggingAvailable) return 'dragging';
   if (context.system === 'unavailable' || context.system === 'offline')
     return 'sleep';
   return context.mood === 'ok' ? 'idle' : `idle_${context.mood}`;

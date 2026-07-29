@@ -1,22 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { beginPointer, releasePointer, updatePointer } from './petPointer';
+import {
+  beginPointer,
+  pointerButtonsReleased,
+  updatePointer,
+} from './petPointer';
 
 describe('pet pointer policy', () => {
-  it('toggles the panel below the four pixel boundary', () => {
+  it('stays undragged below the four pixel boundary', () => {
     const state = updatePointer(beginPointer({ x: 10, y: 10 }), {
       x: 13.99,
       y: 10,
     });
-    expect(releasePointer(state)).toEqual({ kind: 'toggle_panel' });
+    expect(state.dragging).toBe(false);
   });
 
-  it('starts and completes dragging at exactly four pixels', () => {
+  it('starts dragging at exactly four pixels', () => {
     const state = updatePointer(beginPointer({ x: -4, y: 2 }), { x: 0, y: 2 });
     expect(state.dragging).toBe(true);
-    expect(releasePointer(state)).toEqual({
-      kind: 'finish_drag',
-      position: { x: 0, y: 2 },
-    });
+    expect(state.current).toEqual({ x: 0, y: 2 });
   });
 
   it('uses radial distance and keeps immutable snapshots', () => {
@@ -28,5 +29,11 @@ describe('pet pointer policy', () => {
       current: { x: 0, y: 0 },
       dragging: false,
     });
+  });
+
+  it('treats a button-free pointer event as the end of the gesture', () => {
+    expect(pointerButtonsReleased(0)).toBe(true);
+    expect(pointerButtonsReleased(1)).toBe(false);
+    expect(pointerButtonsReleased(3)).toBe(false);
   });
 });
