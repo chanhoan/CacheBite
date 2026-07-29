@@ -14,6 +14,23 @@ pub struct PetPackage {
     pub asset_base_url: String,
 }
 
+/// Identity of an installed package, for the settings picker. Deliberately
+/// narrower than `PetPackage`: the picker needs a label, not asset paths.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PetSummary {
+    pub id: String,
+    pub display_name: String,
+}
+
+/// The `version` and `displayName` of a bundled package, read from the
+/// resource directory to decide whether an installed copy is still stock.
+#[derive(Clone, Debug)]
+pub struct BundledPetInfo {
+    pub version: u32,
+    pub display_name: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct PetManifest {
@@ -94,23 +111,40 @@ impl PetPackageRepository {
         })
     }
 
-    pub fn should_preserve_installed(&self, id: &str, bundled_version: u32) -> bool {
+    /// Installed packages that load cleanly, sorted by display name.
+    ///
+    /// A malformed package is skipped rather than raised: one bad directory
+    /// must not empty the picker. Loading goes through `load` so the asset
+    /// path checks apply here too.
+    pub fn list(&self) -> io::Result<Vec<PetSummary>> {
+        let mut summaries: Vec<PetSummary> = fs::read_dir(&self.pets_root)?
+            .flatten()
+            .filter(|entry| entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false))
+            .filter_map(|entry| {
+                let id = entry.file_name().into_string().ok()?;
+                let package = self.load(&id).ok()?;
+                Some(PetSummary {
+                    id: package.manifest.id,
+                    display_name: package.manifest.display_name,
+                })
+            })
+            .collect();
+        summaries.sort_by(|left, right| left.display_name.cmp(&right.display_name));
+        Ok(summaries)
+    }
+
+    pub fn should_preserve_installed(&self, id: &str, bundled: &BundledPetInfo) -> bool {
         let Ok(package) = self.load(id) else {
             return false;
         };
-        let bundled_name = match id {
-            "cat" => "Cat",
-            "corgi" => "Corgi",
-            _ => return true,
-        };
         // A renamed pet is a user customization — never clobber it.
-        if package.manifest.display_name != bundled_name {
+        if package.manifest.display_name != bundled.display_name {
             return true;
         }
         // Stock pet whose bundled art was refreshed: force a reinstall so
         // updated frame content (e.g. transparent backgrounds) reaches disk
         // even though filenames are unchanged.
-        if package.manifest.version < bundled_version {
+        if package.manifest.version < bundled.version {
             return false;
         }
         // Stock and up to date only when frames already use current naming.
@@ -124,20 +158,26 @@ impl PetPackageRepository {
     }
 }
 
-/// Reads only the `version` field from a manifest on disk, tolerant of any
-/// other shape. Returns 0 when the file is missing or unparseable so a
-/// versionless legacy manifest never spuriously triggers an upgrade.
-pub fn bundled_manifest_version(manifest_path: &Path) -> u32 {
+/// Reads the `version` and `displayName` fields from a manifest on disk,
+/// tolerant of any other shape. Returns `None` when the file is missing or
+/// unparseable, which callers treat as "not a bundled package".
+///
+/// A missing `version` defaults to 0 so a versionless legacy manifest never
+/// spuriously triggers an upgrade.
+pub fn bundled_manifest_info(manifest_path: &Path) -> Option<BundledPetInfo> {
     #[derive(Deserialize)]
-    struct VersionProbe {
+    #[serde(rename_all = "camelCase")]
+    struct Probe {
         #[serde(default)]
         version: u32,
+        display_name: String,
     }
-    fs::read(manifest_path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<VersionProbe>(&bytes).ok())
-        .map(|probe| probe.version)
-        .unwrap_or(0)
+    let bytes = fs::read(manifest_path).ok()?;
+    let probe = serde_json::from_slice::<Probe>(&bytes).ok()?;
+    Some(BundledPetInfo {
+        version: probe.version,
+        display_name: probe.display_name,
+    })
 }
 
 fn normalize_asset_root(raw: &str) -> String {

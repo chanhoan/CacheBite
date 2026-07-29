@@ -1,9 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import catManifest from '../../../src-tauri/resources/pets/cat/manifest.json';
-import corgiManifest from '../../../src-tauri/resources/pets/corgi/manifest.json';
 
 import { validatePetManifest } from './manifest';
 import { requestedAnimationKey, resolvePetAnimation } from './resolver';
+
+// The installer enumerates `resources/pets/` rather than a fixed list, so this
+// does too: a pet added by dropping in a folder must not reach a release with
+// an unvalidated manifest.
+const bundledManifests = Object.entries(
+  import.meta.glob('../../../src-tauri/resources/pets/*/manifest.json', {
+    eager: true,
+    import: 'default',
+  }),
+).map(
+  ([path, manifest]) =>
+    [path.replace(/^.*\/pets\/(.+)\/manifest\.json$/, '$1'), manifest] as [
+      string,
+      unknown,
+    ],
+);
 
 const validManifest = {
   id: 'geometric-idle',
@@ -20,14 +34,19 @@ const validManifest = {
 };
 
 describe('pet manifest validation', () => {
-  it.each([
-    ['cat', catManifest],
-    ['corgi', corgiManifest],
-  ])(
+  it('finds the bundled packages on disk', () => {
+    // Guards the glob itself: a zero-match would leave the suite below with no
+    // cases and pass vacuously. Deliberately not an exact list — adding a pet
+    // should extend the coverage, not break this test.
+    expect(bundledManifests.length).toBeGreaterThan(0);
+  });
+
+  it.each(bundledManifests)(
     'accepts the generated %s package with all mood states',
-    (_, candidate) => {
+    (id, candidate) => {
       const manifest = validatePetManifest(candidate);
 
+      expect(manifest.id).toBe(id);
       expect(Object.keys(manifest.states)).toEqual([
         'idle',
         'idle_warn',

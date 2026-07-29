@@ -48,6 +48,11 @@ export interface PetPackageModel {
   readonly manifest: unknown;
   readonly assetBaseUrl: string;
 }
+/** Identity of an installed pet package, for the settings picker. */
+export interface PetSummaryModel {
+  readonly id: string;
+  readonly displayName: string;
+}
 export type CapabilityDiagnostic =
   | { readonly status: 'available' }
   | { readonly status: 'unavailable'; readonly reason: string };
@@ -74,6 +79,8 @@ export interface AppGateway {
   getSettings(): Promise<AppSettings>;
   listenSettings(next: (settings: AppSettings) => void): Promise<() => void>;
   getPetPackage(): Promise<PetPackageModel>;
+  /** Authorized for the `panel` window only (`window::command_allowed`). */
+  listPetPackages(): Promise<readonly PetSummaryModel[]>;
   getPlatformCapabilities(): Promise<PlatformCapabilities>;
   updateSettings(settings: AppSettings): Promise<AppSettings>;
   getHistory(): Promise<HistoryModels>;
@@ -169,6 +176,9 @@ export const tauriGateway: AppGateway = {
       assetBaseUrl: `${convertFileSrc(wire.asset_base_url).replace(/\/$/, '')}/`,
     };
   },
+  // Already camelCase on the wire (`PetSummary` is `rename_all = "camelCase"`),
+  // so this needs no field mapping.
+  listPetPackages: () => invokeNative('list_pet_packages'),
   getPlatformCapabilities: () => invokeNative('get_platform_capabilities'),
   async updateSettings(settings) {
     return fromSettings(

@@ -61,6 +61,9 @@ export const rendererFixtureGateway: AppGateway = {
     },
     assetBaseUrl: 'asset://localhost/pets/fixture-pet/',
   }),
+  listPetPackages: async () => [
+    { id: 'fixture-pet', displayName: 'Fixture Pet' },
+  ],
   getPlatformCapabilities: async () => ({
     os: 'linux',
     always_on_top: { status: 'available' },

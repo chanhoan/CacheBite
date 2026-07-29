@@ -321,6 +321,9 @@ fn native_commands_are_authorized_by_window_label() {
     assert!(command_allowed("overlay", NativeCommand::GetSettings));
     assert!(!command_allowed("overlay", NativeCommand::GetHistory));
     assert!(command_allowed("overlay", NativeCommand::GetPetPackage));
+    // The pet picker lives in the panel; the overlay has no use for the list.
+    assert!(!command_allowed("overlay", NativeCommand::ListPetPackages));
+    assert!(command_allowed("panel", NativeCommand::ListPetPackages));
     assert!(command_allowed(
         "overlay",
         NativeCommand::GetPlatformCapabilities

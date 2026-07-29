@@ -117,6 +117,7 @@ pub fn run() {
             refresh::ipc::get_settings,
             refresh::ipc::get_history,
             refresh::ipc::get_pet_package,
+            refresh::ipc::list_pet_packages,
             refresh::ipc::get_platform_capabilities,
             refresh::ipc::save_position,
             refresh::ipc::refresh_provider,
@@ -200,31 +201,101 @@ fn start_fullscreen_monitor(app: tauri::AppHandle) {
     });
 }
 
+/// Packages that shipped in an earlier release and were since renamed or
+/// dropped, paired with the display name their stock build carried. Removing
+/// them keeps a stale copy from appearing in the settings picker beside its
+/// replacement.
+const RETIRED_PETS: &[(&str, &str)] = &[("cat", "Cat")];
+
+/// Deletes installed copies of retired packages, but only while they are still
+/// stock.
+///
+/// A renamed package is a user customization, and `should_preserve_installed`
+/// already refuses to clobber those — retirement follows the same rule rather
+/// than reaching around it. Failures are logged and skipped: losing a stale
+/// directory matters far less than installing the packages that replace it.
+fn remove_retired_pet_packages(installed_pets: &Path, repository: &store::PetPackageRepository) {
+    for (retired, stock_name) in RETIRED_PETS {
+        let stale = installed_pets.join(retired);
+        if !stale.exists() {
+            continue;
+        }
+        // Unreadable means a broken stock leftover, which is worth clearing.
+        let is_stock = repository
+            .load(retired)
+            .map(|package| package.manifest.display_name == *stock_name)
+            .unwrap_or(true);
+        if !is_stock {
+            continue;
+        }
+        if let Err(error) = fs::remove_dir_all(&stale) {
+            eprintln!("failed to remove retired pet package {retired}: {error}");
+        }
+    }
+}
+
+/// Installs every package found in the bundled resource directory.
+///
+/// Driven by what is on disk rather than a hardcoded list, so shipping a new
+/// pet is a matter of adding its folder to `resources/pets/`. Individual
+/// packages fail independently, mirroring `PetPackageRepository::list`: one bad
+/// directory must not take the rest of the bundle down with it.
 fn install_bundled_pet_packages(resource_dir: &Path, app_data: &Path) -> io::Result<()> {
     let bundled_pets = resource_dir.join("resources").join("pets");
     let installed_pets = app_data.join("pets");
     fs::create_dir_all(&installed_pets)?;
     let repository = store::PetPackageRepository::new(app_data);
-    for package_id in ["cat", "corgi"] {
-        let destination = installed_pets.join(package_id);
-        let bundled_version =
-            store::bundled_manifest_version(&bundled_pets.join(package_id).join("manifest.json"));
-        if repository.should_preserve_installed(package_id, bundled_version) {
+    // Retirement runs before installation: a future id that is both retired
+    // and bundled must not have its fresh copy deleted straight afterwards.
+    remove_retired_pet_packages(&installed_pets, &repository);
+    for entry in fs::read_dir(&bundled_pets)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
             continue;
         }
-        if destination.exists() {
-            fs::remove_dir_all(&destination)?;
+        let Ok(package_id) = entry.file_name().into_string() else {
+            continue;
+        };
+        // A directory name the loader would later reject installs fine and then
+        // never appears in the picker. Refuse it here, loudly, while the
+        // packaging mistake can still be caught.
+        if !domain::is_valid_pet_id(&package_id) {
+            eprintln!("skipping bundled pet package with invalid id: {package_id}");
+            continue;
         }
-        let staging = installed_pets.join(format!(".{package_id}.installing"));
-        if staging.exists() {
-            fs::remove_dir_all(&staging)?;
+        let source = entry.path();
+        let Some(bundled) = store::bundled_manifest_info(&source.join("manifest.json")) else {
+            eprintln!("skipping bundled pet package with unreadable manifest: {package_id}");
+            continue;
+        };
+        if repository.should_preserve_installed(&package_id, &bundled) {
+            continue;
         }
-        if let Err(error) = copy_directory(&bundled_pets.join(package_id), &staging)
-            .and_then(|()| fs::rename(&staging, &destination))
-        {
-            let _ = fs::remove_dir_all(&staging);
-            return Err(error);
+        if let Err(error) = install_one_bundled_pet(&source, &installed_pets, &package_id) {
+            eprintln!("failed to install bundled pet package {package_id}: {error}");
         }
+    }
+    Ok(())
+}
+
+fn install_one_bundled_pet(
+    source: &Path,
+    installed_pets: &Path,
+    package_id: &str,
+) -> io::Result<()> {
+    let destination = installed_pets.join(package_id);
+    if destination.exists() {
+        fs::remove_dir_all(&destination)?;
+    }
+    let staging = installed_pets.join(format!(".{package_id}.installing"));
+    if staging.exists() {
+        fs::remove_dir_all(&staging)?;
+    }
+    if let Err(error) =
+        copy_directory(source, &staging).and_then(|()| fs::rename(&staging, &destination))
+    {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(error);
     }
     Ok(())
 }
@@ -343,6 +414,7 @@ mod tests {
     use crate::refresh::ipc::{CollectorMode, CollectorModeDto};
     use std::ffi::OsString;
     use std::fs;
+    use std::path::Path;
 
     #[test]
     fn application_identifier_is_stable() {
@@ -378,34 +450,147 @@ mod tests {
         );
     }
 
+    /// Writes a bundled package whose manifest carries the fields the
+    /// installer reads: `displayName` identifies stock art, `version` drives
+    /// forced reinstalls.
+    fn write_bundled_manifest(bundled: &Path, package_id: &str, display_name: &str, version: u32) {
+        fs::create_dir_all(bundled.join(package_id).join("frames")).unwrap();
+        fs::write(
+            bundled.join(package_id).join("manifest.json"),
+            format!(
+                r#"{{"id":"{package_id}","displayName":"{display_name}","version":{version}}}"#
+            ),
+        )
+        .unwrap();
+    }
+
     #[test]
     fn installs_bundled_pet_packages_without_overwriting_existing_packages() {
         let temp = tempfile::tempdir().unwrap();
         let bundled = temp.path().join("resources/pets");
         let app_data = temp.path().join("app-data");
-        fs::create_dir_all(bundled.join("cat/frames")).unwrap();
-        fs::create_dir_all(bundled.join("corgi/frames")).unwrap();
-        fs::write(bundled.join("cat/manifest.json"), "bundled cat").unwrap();
-        fs::write(bundled.join("cat/frames/cat_idle_01.png"), "cat frame").unwrap();
-        fs::write(bundled.join("corgi/manifest.json"), "bundled corgi").unwrap();
-        fs::create_dir_all(app_data.join("pets/cat/frames")).unwrap();
+        write_bundled_manifest(&bundled, "tabby", "Tabby", 1);
+        write_bundled_manifest(&bundled, "corgi", "Corgi", 1);
         fs::write(
-            app_data.join("pets/cat/manifest.json"),
-            r#"{"id":"cat","displayName":"Custom cat","defaultSize":{"width":160,"height":160},"animations":{"idle":{"type":"image","source":"frames/custom.png"}},"states":{}}"#,
+            bundled.join("tabby/frames/tabby_idle_01.png"),
+            "tabby frame",
         )
         .unwrap();
-        fs::write(app_data.join("pets/cat/frames/custom.png"), "custom frame").unwrap();
+        fs::create_dir_all(app_data.join("pets/tabby/frames")).unwrap();
+        fs::write(
+            app_data.join("pets/tabby/manifest.json"),
+            r#"{"id":"tabby","displayName":"Custom tabby","defaultSize":{"width":160,"height":160},"animations":{"idle":{"type":"image","source":"frames/custom.png"}},"states":{}}"#,
+        )
+        .unwrap();
+        fs::write(
+            app_data.join("pets/tabby/frames/custom.png"),
+            "custom frame",
+        )
+        .unwrap();
 
         super::install_bundled_pet_packages(temp.path(), &app_data).unwrap();
 
         assert_eq!(
-            fs::read_to_string(app_data.join("pets/cat/manifest.json")).unwrap(),
-            r#"{"id":"cat","displayName":"Custom cat","defaultSize":{"width":160,"height":160},"animations":{"idle":{"type":"image","source":"frames/custom.png"}},"states":{}}"#
+            fs::read_to_string(app_data.join("pets/tabby/manifest.json")).unwrap(),
+            r#"{"id":"tabby","displayName":"Custom tabby","defaultSize":{"width":160,"height":160},"animations":{"idle":{"type":"image","source":"frames/custom.png"}},"states":{}}"#
         );
-        assert_eq!(
-            fs::read_to_string(app_data.join("pets/corgi/manifest.json")).unwrap(),
-            "bundled corgi"
-        );
+        assert!(app_data.join("pets/corgi/manifest.json").exists());
+    }
+
+    #[test]
+    fn installs_every_package_found_in_the_bundle_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let bundled = temp.path().join("resources/pets");
+        let app_data = temp.path().join("app-data");
+        // A pet added in a later release: no code change should be required.
+        for package_id in ["tabby", "corgi", "axolotl"] {
+            write_bundled_manifest(&bundled, package_id, "Stock", 1);
+        }
+
+        super::install_bundled_pet_packages(temp.path(), &app_data).unwrap();
+
+        for package_id in ["tabby", "corgi", "axolotl"] {
+            assert!(
+                app_data.join("pets").join(package_id).exists(),
+                "expected {package_id} to be installed"
+            );
+        }
+    }
+
+    #[test]
+    fn keeps_a_retired_package_the_user_renamed() {
+        let temp = tempfile::tempdir().unwrap();
+        let bundled = temp.path().join("resources/pets");
+        let app_data = temp.path().join("app-data");
+        write_bundled_manifest(&bundled, "tabby", "Tabby", 1);
+        // Retirement must honour the same customization rule as
+        // should_preserve_installed: a rename is the user's, not ours.
+        fs::create_dir_all(app_data.join("pets/cat/frames")).unwrap();
+        fs::write(app_data.join("pets/cat/frames/idle.svg"), "<svg/>").unwrap();
+        fs::write(
+            app_data.join("pets/cat/manifest.json"),
+            r#"{"id":"cat","displayName":"My Cat","version":1,"defaultSize":{"width":128,"height":128},"animations":{"idle":{"type":"image","source":"frames/idle.svg"}},"states":{}}"#,
+        )
+        .unwrap();
+
+        super::install_bundled_pet_packages(temp.path(), &app_data).unwrap();
+
+        assert!(app_data.join("pets/cat/manifest.json").exists());
+        assert!(app_data.join("pets/tabby").exists());
+    }
+
+    #[test]
+    fn skips_bundled_packages_whose_directory_name_is_not_a_valid_pet_id() {
+        let temp = tempfile::tempdir().unwrap();
+        let bundled = temp.path().join("resources/pets");
+        let app_data = temp.path().join("app-data");
+        write_bundled_manifest(&bundled, "tabby", "Tabby", 1);
+        // Installing this would succeed and then never load, because
+        // is_valid_pet_id rejects underscores and uppercase.
+        write_bundled_manifest(&bundled, "My_Pet", "My Pet", 1);
+
+        super::install_bundled_pet_packages(temp.path(), &app_data).unwrap();
+
+        assert!(!app_data.join("pets/My_Pet").exists());
+        assert!(app_data.join("pets/tabby").exists());
+    }
+
+    #[test]
+    fn one_unusable_bundled_package_does_not_block_the_others() {
+        let temp = tempfile::tempdir().unwrap();
+        let bundled = temp.path().join("resources/pets");
+        let app_data = temp.path().join("app-data");
+        write_bundled_manifest(&bundled, "tabby", "Tabby", 1);
+        write_bundled_manifest(&bundled, "corgi", "Corgi", 1);
+        // Unreadable manifest: skipped with a log, never fatal.
+        fs::create_dir_all(bundled.join("broken")).unwrap();
+        fs::write(bundled.join("broken/manifest.json"), "not json").unwrap();
+
+        super::install_bundled_pet_packages(temp.path(), &app_data).unwrap();
+
+        assert!(!app_data.join("pets/broken").exists());
+        assert!(app_data.join("pets/tabby").exists());
+        assert!(app_data.join("pets/corgi").exists());
+    }
+
+    #[test]
+    fn removes_retired_pet_packages_from_the_install_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let bundled = temp.path().join("resources/pets");
+        let app_data = temp.path().join("app-data");
+        write_bundled_manifest(&bundled, "tabby", "Tabby", 1);
+        // Left over from a release that still shipped `cat`.
+        fs::create_dir_all(app_data.join("pets/cat/frames")).unwrap();
+        fs::write(
+            app_data.join("pets/cat/manifest.json"),
+            r#"{"id":"cat","displayName":"Cat","version":1,"defaultSize":{"width":128,"height":128},"animations":{"idle":{"type":"image","source":"frames/cat_idle_01.png"}},"states":{}}"#,
+        )
+        .unwrap();
+
+        super::install_bundled_pet_packages(temp.path(), &app_data).unwrap();
+
+        assert!(!app_data.join("pets/cat").exists());
+        assert!(app_data.join("pets/tabby").exists());
     }
 
     #[test]
@@ -413,13 +598,8 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let bundled = temp.path().join("resources/pets");
         let app_data = temp.path().join("app-data");
-        for package_id in ["cat", "corgi"] {
-            fs::create_dir_all(bundled.join(package_id).join("frames")).unwrap();
-            fs::write(
-                bundled.join(package_id).join("manifest.json"),
-                format!("bundled {package_id}"),
-            )
-            .unwrap();
+        for package_id in ["tabby", "corgi"] {
+            write_bundled_manifest(&bundled, package_id, "Stock", 1);
             fs::write(
                 bundled
                     .join(package_id)
@@ -428,17 +608,13 @@ mod tests {
             )
             .unwrap();
         }
-        fs::create_dir_all(app_data.join("pets/cat")).unwrap();
+        fs::create_dir_all(app_data.join("pets/tabby")).unwrap();
 
         super::install_bundled_pet_packages(temp.path(), &app_data).unwrap();
 
         assert_eq!(
-            fs::read_to_string(app_data.join("pets/cat/manifest.json")).unwrap(),
-            "bundled cat"
-        );
-        assert_eq!(
-            fs::read_to_string(app_data.join("pets/cat/frames/cat_idle_01.png")).unwrap(),
-            "cat frame"
+            fs::read_to_string(app_data.join("pets/tabby/frames/tabby_idle_01.png")).unwrap(),
+            "tabby frame"
         );
     }
 
@@ -447,30 +623,25 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let bundled = temp.path().join("resources/pets");
         let app_data = temp.path().join("app-data");
-        for package_id in ["cat", "corgi"] {
-            fs::create_dir_all(bundled.join(package_id).join("frames")).unwrap();
-            fs::write(
-                bundled.join(package_id).join("manifest.json"),
-                format!("bundled {package_id}"),
-            )
-            .unwrap();
+        for package_id in ["tabby", "corgi"] {
+            write_bundled_manifest(&bundled, package_id, "Tabby", 0);
         }
-        fs::write(bundled.join("cat/frames/cat_idle_01.png"), "new frame").unwrap();
-        fs::create_dir_all(app_data.join("pets/cat/frames")).unwrap();
+        fs::write(bundled.join("tabby/frames/tabby_idle_01.png"), "new frame").unwrap();
+        fs::create_dir_all(app_data.join("pets/tabby/frames")).unwrap();
         fs::write(
-            app_data.join("pets/cat/manifest.json"),
-            r#"{"id":"cat","displayName":"Cat","defaultSize":{"width":128,"height":128},"animations":{"idle":{"type":"image","source":"frames/idle_01.png"}},"states":{}}"#,
+            app_data.join("pets/tabby/manifest.json"),
+            r#"{"id":"tabby","displayName":"Tabby","defaultSize":{"width":128,"height":128},"animations":{"idle":{"type":"image","source":"frames/idle_01.png"}},"states":{}}"#,
         )
         .unwrap();
-        fs::write(app_data.join("pets/cat/frames/idle_01.png"), "old frame").unwrap();
+        fs::write(app_data.join("pets/tabby/frames/idle_01.png"), "old frame").unwrap();
 
         super::install_bundled_pet_packages(temp.path(), &app_data).unwrap();
 
         assert_eq!(
-            fs::read_to_string(app_data.join("pets/cat/frames/cat_idle_01.png")).unwrap(),
+            fs::read_to_string(app_data.join("pets/tabby/frames/tabby_idle_01.png")).unwrap(),
             "new frame"
         );
-        assert!(!app_data.join("pets/cat/frames/idle_01.png").exists());
+        assert!(!app_data.join("pets/tabby/frames/idle_01.png").exists());
     }
 
     #[test]
@@ -478,29 +649,24 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let bundled = temp.path().join("resources/pets");
         let app_data = temp.path().join("app-data");
-        for package_id in ["cat", "corgi"] {
-            fs::create_dir_all(bundled.join(package_id).join("frames")).unwrap();
-            fs::write(
-                bundled.join(package_id).join("manifest.json"),
-                r#"{"version":1}"#,
-            )
-            .unwrap();
+        for package_id in ["tabby", "corgi"] {
+            write_bundled_manifest(&bundled, package_id, "Tabby", 1);
         }
         fs::write(
-            bundled.join("cat/frames/cat_idle_01.png"),
+            bundled.join("tabby/frames/tabby_idle_01.png"),
             "transparent frame",
         )
         .unwrap();
 
-        // Installed stock cat: current frame naming, no version field (legacy 0).
-        fs::create_dir_all(app_data.join("pets/cat/frames")).unwrap();
+        // Installed stock tabby: current frame naming, no version field (legacy 0).
+        fs::create_dir_all(app_data.join("pets/tabby/frames")).unwrap();
         fs::write(
-            app_data.join("pets/cat/manifest.json"),
-            r#"{"id":"cat","displayName":"Cat","defaultSize":{"width":128,"height":128},"animations":{"idle":{"type":"image","source":"frames/cat_idle_01.png"}},"states":{}}"#,
+            app_data.join("pets/tabby/manifest.json"),
+            r#"{"id":"tabby","displayName":"Tabby","defaultSize":{"width":128,"height":128},"animations":{"idle":{"type":"image","source":"frames/tabby_idle_01.png"}},"states":{}}"#,
         )
         .unwrap();
         fs::write(
-            app_data.join("pets/cat/frames/cat_idle_01.png"),
+            app_data.join("pets/tabby/frames/tabby_idle_01.png"),
             "opaque frame",
         )
         .unwrap();
@@ -508,7 +674,7 @@ mod tests {
         super::install_bundled_pet_packages(temp.path(), &app_data).unwrap();
 
         assert_eq!(
-            fs::read_to_string(app_data.join("pets/cat/frames/cat_idle_01.png")).unwrap(),
+            fs::read_to_string(app_data.join("pets/tabby/frames/tabby_idle_01.png")).unwrap(),
             "transparent frame"
         );
     }
@@ -518,25 +684,24 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let bundled = temp.path().join("resources/pets");
         let app_data = temp.path().join("app-data");
-        for package_id in ["cat", "corgi"] {
-            fs::create_dir_all(bundled.join(package_id).join("frames")).unwrap();
-            fs::write(
-                bundled.join(package_id).join("manifest.json"),
-                r#"{"version":1}"#,
-            )
-            .unwrap();
+        for package_id in ["tabby", "corgi"] {
+            write_bundled_manifest(&bundled, package_id, "Tabby", 1);
         }
-        fs::write(bundled.join("cat/frames/cat_idle_01.png"), "bundled frame").unwrap();
-
-        // Installed stock cat already at version 1 with current frame naming.
-        fs::create_dir_all(app_data.join("pets/cat/frames")).unwrap();
         fs::write(
-            app_data.join("pets/cat/manifest.json"),
-            r#"{"id":"cat","displayName":"Cat","version":1,"defaultSize":{"width":128,"height":128},"animations":{"idle":{"type":"image","source":"frames/cat_idle_01.png"}},"states":{}}"#,
+            bundled.join("tabby/frames/tabby_idle_01.png"),
+            "bundled frame",
+        )
+        .unwrap();
+
+        // Installed stock tabby already at version 1 with current frame naming.
+        fs::create_dir_all(app_data.join("pets/tabby/frames")).unwrap();
+        fs::write(
+            app_data.join("pets/tabby/manifest.json"),
+            r#"{"id":"tabby","displayName":"Tabby","version":1,"defaultSize":{"width":128,"height":128},"animations":{"idle":{"type":"image","source":"frames/tabby_idle_01.png"}},"states":{}}"#,
         )
         .unwrap();
         fs::write(
-            app_data.join("pets/cat/frames/cat_idle_01.png"),
+            app_data.join("pets/tabby/frames/tabby_idle_01.png"),
             "kept frame",
         )
         .unwrap();
@@ -544,7 +709,7 @@ mod tests {
         super::install_bundled_pet_packages(temp.path(), &app_data).unwrap();
 
         assert_eq!(
-            fs::read_to_string(app_data.join("pets/cat/frames/cat_idle_01.png")).unwrap(),
+            fs::read_to_string(app_data.join("pets/tabby/frames/tabby_idle_01.png")).unwrap(),
             "kept frame"
         );
     }

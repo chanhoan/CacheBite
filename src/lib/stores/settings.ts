@@ -3,6 +3,7 @@ import type { Provider } from '../contracts/domain';
 
 export interface SettingsState {
   readonly primaryProvider: Provider;
+  readonly selectedPetId: string;
   readonly bubblesEnabled: boolean;
   readonly startAtLogin: boolean;
   readonly notificationsEnabled: boolean;
@@ -10,6 +11,8 @@ export interface SettingsState {
 }
 export const defaultSettings: SettingsState = Object.freeze({
   primaryProvider: 'claude',
+  // Must match the Rust default (`store/settings.rs`).
+  selectedPetId: 'tabby',
   bubblesEnabled: true,
   startAtLogin: false,
   notificationsEnabled: false,

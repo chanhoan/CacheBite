@@ -42,7 +42,7 @@ impl Default for Settings {
         Self {
             schema_version: SETTINGS_SCHEMA_VERSION,
             primary_provider: Provider::Claude,
-            selected_pet_id: "cat".into(),
+            selected_pet_id: "tabby".into(),
             bubble_enabled: true,
             start_at_login: false,
             notification_enabled: false,
@@ -136,12 +136,21 @@ impl SettingsRepository {
         };
         if let Ok(settings) = serde_json::from_slice::<Settings>(&bytes) {
             if validate(&settings).is_ok() {
-                if settings.selected_pet_id == "idle" {
+                // `idle` is an animation key an early build wrote as a package
+                // id; `cat` was renamed to `tabby`. Either value points at a
+                // package that no longer exists, so repair it in place rather
+                // than letting get_pet_package fail.
+                let repaired = match settings.selected_pet_id.as_str() {
+                    "idle" => Some(match settings.primary_provider {
+                        Provider::Claude => "tabby",
+                        Provider::Codex => "corgi",
+                    }),
+                    "cat" => Some("tabby"),
+                    _ => None,
+                };
+                if let Some(pet_id) = repaired {
                     let migrated = Settings {
-                        selected_pet_id: match settings.primary_provider {
-                            Provider::Claude => "cat".into(),
-                            Provider::Codex => "corgi".into(),
-                        },
+                        selected_pet_id: pet_id.into(),
                         ..settings
                     };
                     write_json_atomically(&self.path, &migrated)?;
@@ -160,8 +169,15 @@ impl SettingsRepository {
                     logical_position: previous.logical_position,
                     ..Settings::default()
                 };
+                // Validate before writing, as the legacy path does. An old file
+                // carrying an unusable value would otherwise be written out and
+                // then quarantined on re-read, discarding position and
+                // notification settings that migrated across just fine.
+                validate(&migrated)?;
                 write_json_atomically(&self.path, &migrated)?;
-                return Ok(migrated);
+                // Re-read so the current-schema pass above can repair a
+                // retired `selected_pet_id` carried over from the old file.
+                return self.load_locked();
             }
         }
         if let Ok(previous) = serde_json::from_slice::<SettingsV2>(&bytes) {
@@ -175,8 +191,9 @@ impl SettingsRepository {
                     logical_position: previous.logical_position,
                     ..Settings::default()
                 };
+                validate(&migrated)?;
                 write_json_atomically(&self.path, &migrated)?;
-                return Ok(migrated);
+                return self.load_locked();
             }
         }
         if let Ok(legacy) = serde_json::from_slice::<LegacySettings>(&bytes) {
@@ -190,7 +207,7 @@ impl SettingsRepository {
             };
             validate(&migrated)?;
             write_json_atomically(&self.path, &migrated)?;
-            return Ok(migrated);
+            return self.load_locked();
         }
         quarantine(&self.path)?;
         Ok(Settings::default())
