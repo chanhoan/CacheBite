@@ -10,6 +10,80 @@ describe('CacheBite renderer fixture flows', () => {
     );
   });
 
+  it('keeps the overlay toast below the usage ring and inside the viewport', async () => {
+    await browser.url('/?window=overlay&fixture=e2e&toast=layout');
+    const originalViewport = await browser.execute(() => ({
+      width: window.innerWidth,
+      height: window.innerHeight,
+      devicePixelRatio: window.devicePixelRatio,
+    }));
+    try {
+      await browser.setViewport({
+        width: 240,
+        height: 240,
+        devicePixelRatio: 1,
+      });
+      const toast = await $('[data-testid="overlay-toast"]');
+      await toast.waitForExist();
+
+      const expectedMessage =
+        'Weekly usage is nearly exhausted and will reset after the current window';
+      const layout = await browser.execute((message) => {
+        const toast = document.querySelector<HTMLElement>(
+          '[data-testid="overlay-toast"]',
+        );
+        const ring = document.querySelector<HTMLElement>(
+          '[data-testid="usage-ring"]',
+        );
+        if (!toast || !ring) {
+          throw new Error('overlay layout missing');
+        }
+        const messageNode = toast.querySelector<HTMLElement>('.toast-message');
+        if (!messageNode) {
+          throw new Error('toast message missing');
+        }
+        const ringRect = ring.getBoundingClientRect();
+        const visualBottom = Math.max(
+          ringRect.bottom,
+          ...[...ring.querySelectorAll<HTMLElement>('.ring-label')].map(
+            (label) => label.getBoundingClientRect().bottom,
+          ),
+        );
+        messageNode.textContent = message;
+        const toastRect = toast.getBoundingClientRect();
+        return {
+          ringBottom: ringRect.bottom,
+          visualBottom,
+          toastTop: toastRect.top,
+          toastBottom: toastRect.bottom,
+          toastLeft: toastRect.left,
+          toastRight: toastRect.right,
+          viewportHeight: window.innerHeight,
+          viewportWidth: window.innerWidth,
+          messageScrollWidth: messageNode.scrollWidth,
+          messageClientWidth: messageNode.clientWidth,
+          message: messageNode.textContent,
+          expectedMessage: message,
+        };
+      }, expectedMessage);
+
+      expect(layout.toastTop).toBeGreaterThanOrEqual(layout.visualBottom + 8);
+      expect(layout.toastBottom).toBeLessThanOrEqual(layout.viewportHeight);
+      expect(layout.toastLeft).toBeGreaterThanOrEqual(0);
+      expect(layout.toastRight).toBeLessThanOrEqual(layout.viewportWidth);
+      expect(layout.messageScrollWidth).toBeLessThanOrEqual(
+        layout.messageClientWidth,
+      );
+      expect(layout.message).toBe(layout.expectedMessage);
+    } finally {
+      await browser.setViewport({
+        width: originalViewport.width,
+        height: originalViewport.height,
+        devicePixelRatio: originalViewport.devicePixelRatio,
+      });
+    }
+  });
+
   it('limits overlay hit testing to the circular surface', async () => {
     await browser.url('/?window=overlay&fixture=e2e');
     await expect($('[data-testid="overlay-pointer-surface"]')).toBeDisplayed();

@@ -7,32 +7,37 @@
   let { message, onDismiss = () => {} } = $props();
 </script>
 
-<button class="bubble" aria-label={message} onclick={() => onDismiss()}
-  >{message}</button
+<button
+  class="toast"
+  data-testid="overlay-toast"
+  aria-label={message}
+  onclick={() => onDismiss()}
 >
+  <span class="toast-message">{message}</span>
+</button>
 
 <style>
-  .bubble {
-    position: relative;
-    max-width: 15rem;
-    padding: 0.65rem 0.85rem;
+  .toast {
+    display: block;
+    inline-size: fit-content;
+    max-inline-size: calc(100vw - var(--space-4));
+    padding: 0.3rem 0.65rem;
     border: 1px solid var(--color-border);
-    border-radius: 0.75rem;
+    border-radius: 0.625rem;
     background: var(--color-surface);
     color: var(--color-text);
     box-shadow: var(--shadow-panel);
     font: inherit;
+    font-size: 0.625rem;
+    line-height: 1.15;
+    text-align: center;
+    white-space: normal;
+    cursor: pointer;
   }
-  .bubble::after {
-    position: absolute;
-    right: 1.25rem;
-    bottom: -0.4rem;
-    width: 0.7rem;
-    height: 0.7rem;
-    border-right: 1px solid var(--color-border);
-    border-bottom: 1px solid var(--color-border);
-    background: var(--color-surface);
-    content: '';
-    transform: rotate(45deg);
+  .toast-message {
+    display: block;
+    overflow-wrap: anywhere;
+    text-wrap: pretty;
+    word-break: keep-all;
   }
 </style>

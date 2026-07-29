@@ -29,4 +29,15 @@ describe('SpeechBubble', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
     expect(dismiss).toHaveBeenCalledOnce();
   });
+
+  it('renders a tail-free overlay toast with the complete message', () => {
+    const message =
+      'Weekly usage is nearly exhausted and will reset after the current window';
+    render(SpeechBubble, { props: { message } });
+
+    const toast = screen.getByTestId('overlay-toast');
+    expect(toast.classList).toContain('toast');
+    expect(toast.classList).not.toContain('bubble');
+    expect(toast.querySelector('.toast-message')?.textContent).toBe(message);
+  });
 });

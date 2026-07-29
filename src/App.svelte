@@ -686,24 +686,30 @@
         {notificationDiagnostic.reason}
       </p>{/if}
   {:else}
-    {#if overlayModel}
-      <PetOverlay
-        model={overlayModel}
-        onPointerDown={pointerDown}
-        onPointerMove={pointerMove}
-        onPointerUp={pointerUp}
-        onPointerCancel={pointerCancel}
-        onOpen={() => void gateway.showPanel()}
-      />
-    {:else if petPackageError}
-      <p role="status">Pet package unavailable</p>
-    {/if}
-    {#if $interactionStore.bubblePolicy.bubble}
-      <SpeechBubble
-        message={$interactionStore.bubblePolicy.bubble.message}
-        onDismiss={() => interactionStore.dismissBubble()}
-      />
-    {/if}
+    <div
+      class:toast-visible={Boolean($interactionStore.bubblePolicy.bubble)}
+      class="overlay-stack"
+      data-toast-visible={Boolean($interactionStore.bubblePolicy.bubble)}
+    >
+      {#if overlayModel}
+        <PetOverlay
+          model={overlayModel}
+          onPointerDown={pointerDown}
+          onPointerMove={pointerMove}
+          onPointerUp={pointerUp}
+          onPointerCancel={pointerCancel}
+          onOpen={() => void gateway.showPanel()}
+        />
+      {:else if petPackageError}
+        <p role="status">Pet package unavailable</p>
+      {/if}
+      {#if $interactionStore.bubblePolicy.bubble}
+        <SpeechBubble
+          message={$interactionStore.bubblePolicy.bubble.message}
+          onDismiss={() => interactionStore.dismissBubble()}
+        />
+      {/if}
+    </div>
     {#if positionSaveFailed}<p role="status">
         Window position could not be saved
       </p>{/if}
@@ -711,6 +717,17 @@
 </main>
 
 <style>
+  .overlay-stack {
+    display: grid;
+    max-width: 100%;
+    max-height: 100vh;
+    align-items: center;
+    justify-items: center;
+    gap: 44px;
+  }
+  .overlay-stack.toast-visible :global(.overlay) {
+    max-width: min(9.5rem, 100vw);
+  }
   .settings-view {
     display: grid;
     gap: var(--space-3);
