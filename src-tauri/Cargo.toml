@@ -1,6 +1,6 @@
 [package]
 name = "cachebite"
-version = "0.1.4"
+version = "0.1.0"
 description = "A local desktop pet for Claude and Codex usage"
 authors = ["CacheBite contributors"]
 edition = "2021"

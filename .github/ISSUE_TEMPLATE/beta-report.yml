@@ -1,0 +1,81 @@
+name: Beta report
+description: Report a problem or an observation from a CacheBite beta build
+labels: ['beta']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing CacheBite.
+
+        **Do not paste credentials.** No API keys, OAuth tokens, session
+        cookies, credential files, raw provider responses, or provider account
+        identifiers — including inside screenshots. CacheBite is built so those
+        never reach the screen or the logs, and a report should not undo that.
+        If a problem seems impossible to explain without them, say so and we
+        will find another way to reproduce it.
+  - type: input
+    id: build
+    attributes:
+      label: Build
+      description: The release tag you installed, and which installer.
+      placeholder: v0.1.0-beta.1, Windows MSI
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: Include the version, and the display server on Linux.
+      placeholder: Windows 11 26200 / macOS 15.2 / Ubuntu 24.04 X11
+    validations:
+      required: true
+  - type: dropdown
+    id: primary-provider
+    attributes:
+      label: Primary provider
+      description: The provider driving the usage ring in Settings.
+      options:
+        - Claude
+        - Codex
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Drag the pet to the second display
+        2. Release it and move the mouse
+        3. The pet stays in its drag pose
+    validations:
+      required: true
+  - type: textarea
+    id: displays
+    attributes:
+      label: Display setup
+      description: Relevant for anything about position, panel placement, or scaling.
+      placeholder: 2 displays, 2560x1440 at 150% primary and 1920x1080 at 100% to the left
+    validations:
+      required: false
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Screenshots of the pet or panel are welcome.
+    validations:
+      required: false
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Before submitting
+      options:
+        - label: This report contains no credentials, tokens, raw provider responses, or provider account identifiers, including in any attached image.
+          required: true
