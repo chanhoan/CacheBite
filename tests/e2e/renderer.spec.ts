@@ -210,4 +210,93 @@ describe('CacheBite renderer fixture flows', () => {
     });
     expect(layout.outerHeight).toBeLessThan(520);
   });
+
+  it('layers the close control over the header without reserving space', async () => {
+    await browser.url('/?window=panel&fixture=e2e');
+    await expect($('section[aria-label="Usage panel"]')).toBeDisplayed();
+
+    const geometry = await browser.execute(() => {
+      const panel = document.querySelector<HTMLElement>('main.panel');
+      const close = panel?.querySelector<HTMLElement>('.close-panel');
+      const header = panel?.querySelector<HTMLElement>('.usage-panel > header');
+      if (!panel || !close || !header) {
+        throw new Error('panel close control missing');
+      }
+      const panelBox = panel.getBoundingClientRect();
+      const closeBox = close.getBoundingClientRect();
+      const headerBox = header.getBoundingClientRect();
+      return {
+        position: getComputedStyle(close).position,
+        // Out of flow: the header still starts at the shell's content edge and
+        // spans its full inner width, exactly as it did without the control.
+        // `clientTop`/`clientWidth` exclude the shell's 1px border, which
+        // `getBoundingClientRect` includes.
+        headerTopOffset: Math.round(
+          headerBox.top - panelBox.top - panel.clientTop,
+        ),
+        headerWidth: Math.round(headerBox.width),
+        panelInnerWidth: panel.clientWidth,
+        closeInsideShell:
+          closeBox.right <= panelBox.right && closeBox.top >= panelBox.top,
+      };
+    });
+
+    expect(geometry.position).toBe('absolute');
+    expect(geometry.headerTopOffset).toBe(0);
+    // Compared with a 1px tolerance: `getBoundingClientRect` returns fractional
+    // widths under a fractional device pixel ratio while `clientWidth` is
+    // integral, so an exact equality would fail on scaled displays for a header
+    // that in fact still spans the full shell.
+    expect(
+      Math.abs(geometry.headerWidth - geometry.panelInnerWidth),
+    ).toBeLessThanOrEqual(1);
+    expect(geometry.closeInsideShell).toBe(true);
+  });
+
+  // The close control deliberately layers over the second tab rather than making
+  // the tab strip yield width (ui-contract.md §5). That trade-off is only
+  // acceptable while the overlap stays small, so the measured extent is pinned
+  // here: growing the icon or shrinking the header padding fails this test
+  // instead of silently eating more of the tab.
+  it('keeps the close control overlap over the second tab within contract', async () => {
+    await browser.url('/?window=panel&fixture=e2e');
+    await expect($('section[aria-label="Usage panel"]')).toBeDisplayed();
+
+    const overlap = await browser.execute(() => {
+      const panel = document.querySelector<HTMLElement>('main.panel');
+      const close = panel?.querySelector<HTMLElement>('.close-panel');
+      const codex = [
+        ...(panel?.querySelectorAll<HTMLElement>('[role="tab"]') ?? []),
+      ].find((tab) => tab.getAttribute('aria-label')?.startsWith('Codex'));
+      if (!panel || !close || !codex) {
+        throw new Error('panel close control or Codex tab missing');
+      }
+      const c = close.getBoundingClientRect();
+      const t = codex.getBoundingClientRect();
+      const hit = (x: number, y: number) =>
+        document.elementFromPoint(x, y)?.getAttribute('aria-label') ?? '';
+      return {
+        width: Math.max(
+          0,
+          Math.min(c.right, t.right) - Math.max(c.left, t.left),
+        ),
+        height: Math.max(
+          0,
+          Math.min(c.bottom, t.bottom) - Math.max(c.top, t.top),
+        ),
+        tabWidth: t.width,
+        // The tab must stay usable everywhere the control does not cover.
+        hitAtTabCentre: hit(t.left + t.width / 2, t.top + t.height / 2),
+        hitAtTabLeftEdge: hit(t.left + 4, t.top + t.height / 2),
+      };
+    });
+
+    expect(Math.round(overlap.width)).toBeLessThanOrEqual(14);
+    expect(Math.round(overlap.height)).toBeLessThanOrEqual(18);
+    // 14px of a ~139px tab measures 10.1%; the cap sits just above that so the
+    // contract figure is pinned without failing on sub-pixel tab widths.
+    expect(overlap.width / overlap.tabWidth).toBeLessThanOrEqual(0.105);
+    expect(overlap.hitAtTabCentre).toBe('Codex');
+    expect(overlap.hitAtTabLeftEdge).toBe('Codex');
+  });
 });

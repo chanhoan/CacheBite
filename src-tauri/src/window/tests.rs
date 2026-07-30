@@ -343,6 +343,12 @@ fn native_commands_are_authorized_by_window_label() {
 }
 
 #[test]
+fn a_visible_panel_is_raised_rather_than_left_behind_another_window() {
+    assert_eq!(panel_reveal(true), PanelReveal::RaiseExisting);
+    assert_eq!(panel_reveal(false), PanelReveal::AwaitLayout);
+}
+
+#[test]
 fn normalizes_supported_platform_names_and_falls_back_to_linux() {
     assert_eq!(super::platform_os("macos"), "macos");
     assert_eq!(super::platform_os("windows"), "windows");

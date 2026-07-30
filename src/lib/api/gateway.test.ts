@@ -138,11 +138,13 @@ describe('typed Tauri gateway', () => {
     await tauriGateway.refreshProvider('codex');
     await tauriGateway.showPanel();
     await tauriGateway.hidePanel();
+    await tauriGateway.quit();
     expect(invoked).toHaveBeenCalledWith('refresh_provider', {
       provider: 'codex',
     });
     expect(invoked).toHaveBeenCalledWith('show_panel', {});
     expect(invoked).toHaveBeenCalledWith('hide_panel', {});
+    expect(invoked).toHaveBeenCalledWith('quit', {});
   });
 
   it('resizes the panel window to its measured content height', async () => {

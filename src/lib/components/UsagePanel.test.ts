@@ -127,8 +127,9 @@ describe('UsagePanel', () => {
     expect(freshness?.textContent).not.toMatch(/oauth_api|cli_rpc|cached/);
   });
 
-  it('closes the panel when Quit is pressed rather than acting on the window itself', async () => {
+  it('hides the panel through the close control and quits through the footer button', async () => {
     const onClose = vi.fn();
+    const onQuit = vi.fn();
     render(UsagePanel, {
       props: {
         providers: bothProviders('active'),
@@ -137,14 +138,22 @@ describe('UsagePanel', () => {
         refreshing: false,
         nowMs: NOW,
         onClose,
+        onQuit,
       },
     });
 
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Close usage panel' }),
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onQuit).not.toHaveBeenCalled();
+
     await fireEvent.click(screen.getByRole('button', { name: 'Quit' }));
+    expect(onQuit).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('opens settings through its callback and exposes no window-close control', async () => {
+  it('opens settings through its callback and exposes the panel close control', async () => {
     const onSettings = vi.fn();
     render(UsagePanel, {
       props: {
@@ -158,8 +167,8 @@ describe('UsagePanel', () => {
     });
 
     expect(
-      screen.queryByRole('button', { name: 'Close usage panel' }),
-    ).toBeNull();
+      screen.getByRole('button', { name: 'Close usage panel' }),
+    ).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     expect(onSettings).toHaveBeenCalledTimes(1);
   });

@@ -4,7 +4,7 @@
   import { capturedAgo } from '../format/time.js';
   import { systemGuidance } from './systemGuidance.js';
   /** @typedef {import('./panelModels').PanelProviderModel} PanelProvider */
-  /** @type {{ providers: { claude: PanelProvider; codex: PanelProvider }; selected: import('../contracts/domain').Provider; primary?: import('../contracts/domain').Provider; refreshing: boolean; nowMs?: number; onRefresh?: (provider: import('../contracts/domain').Provider) => void; onSelect?: (provider: import('../contracts/domain').Provider) => void; onPrimary?: (provider: import('../contracts/domain').Provider) => void; onSettings?: () => void; onClose?: () => void }} */
+  /** @type {{ providers: { claude: PanelProvider; codex: PanelProvider }; selected: import('../contracts/domain').Provider; primary?: import('../contracts/domain').Provider; refreshing: boolean; nowMs?: number; onRefresh?: (provider: import('../contracts/domain').Provider) => void; onSelect?: (provider: import('../contracts/domain').Provider) => void; onPrimary?: (provider: import('../contracts/domain').Provider) => void; onSettings?: () => void; onClose?: () => void; onQuit?: () => void }} */
   let {
     providers,
     selected,
@@ -16,6 +16,7 @@
     onPrimary = () => {},
     onSettings = () => {},
     onClose = () => {},
+    onQuit = () => {},
   } = $props();
   const current = $derived(providers[selected]);
   const guidance = $derived(systemGuidance(current.system, selected));
@@ -25,6 +26,13 @@
 </script>
 
 <section class="usage-panel" aria-label="Usage panel">
+  <button
+    class="close-panel"
+    type="button"
+    aria-label="Close usage panel"
+    title="Close usage panel"
+    onclick={() => onClose()}>×</button
+  >
   <h2 class="visually-hidden">Usage panel</h2>
   <header>
     <ProviderTabs {selected} {primary} {onSelect} />
@@ -87,14 +95,43 @@
     <div class="footer-row">
       <button class="ghost-action" onclick={() => onSettings()}>Settings</button
       >
-      <button class="ghost-action quit" onclick={() => onClose()}>Quit</button>
+      <button class="ghost-action quit" onclick={() => onQuit()}>Quit</button>
     </div>
   </footer>
 </section>
 
 <style>
   .usage-panel {
+    position: relative;
     width: 100%;
+    color: var(--color-text);
+  }
+  /* Out of flow on purpose: the close control layers over the header instead of
+     reserving a column, so adding it leaves every existing box — and the height
+     the ResizeObserver reports to `resize_panel` — untouched. */
+  .close-panel {
+    position: absolute;
+    z-index: 2;
+    top: 0.375rem;
+    right: 0.375rem;
+    display: grid;
+    width: 1.5rem;
+    height: 1.5rem;
+    min-height: 0;
+    place-items: center;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 0.375rem;
+    background: transparent;
+    color: var(--color-text-muted);
+    font-size: 1rem;
+    font-weight: 500;
+    line-height: 1;
+  }
+  .close-panel:hover,
+  .close-panel:focus-visible {
+    border-color: var(--color-border);
+    background: var(--color-surface-sunken);
     color: var(--color-text);
   }
   header {

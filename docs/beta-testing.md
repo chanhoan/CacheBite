@@ -74,8 +74,8 @@ chmod +x CacheBite_<version>_amd64.AppImage
 ./CacheBite_<version>_amd64.AppImage
 ```
 
-On Debian/Ubuntu the runtime dependency is `libwebkit2gtk-4.1-0`, and the tray
-needs an AppIndicator implementation.
+On Debian/Ubuntu the runtime dependency is `libwebkit2gtk-4.1-0`. CacheBite
+ships no tray icon — the pet and its panel are the whole surface.
 
 Uninstall by deleting the AppImage.
 
@@ -88,6 +88,11 @@ Uninstall by deleting the AppImage.
   the ring), pet selection, bubbles, notifications, start at login.
 - The pet you choose is independent of the primary provider. Changing one must
   never change the other.
+- The panel stays on top until you close it. Click the **×** at its top-right to
+  hide it — CacheBite keeps running. Double-click the pet to bring the panel back
+  to the front.
+- **Quit** in the panel footer exits CacheBite. That is the supported way to stop
+  it; you should never need Task Manager.
 
 ## What this beta is looking for
 
