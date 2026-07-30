@@ -661,6 +661,7 @@
         refreshing={$providersStore.refreshing[$providersStore.selected]}
         {nowMs}
         onClose={() => void gateway.hidePanel()}
+        onQuit={() => void gateway.quit()}
         onSettings={() => (showSettings = true)}
         onSelect={(provider) => {
           providersStore.selectTab(provider);

@@ -103,6 +103,31 @@ pub fn command_allowed(window_label: &str, command: NativeCommand) -> bool {
     }
 }
 
+/// What `show_panel` must do for a panel in the given visibility state.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PanelReveal {
+    /// Already on screen: raise and focus it, leaving the layout gate alone —
+    /// the height the renderer last reported still applies.
+    RaiseExisting,
+    /// Off screen: arm the layout gate so the reveal waits for the renderer to
+    /// measure its content height.
+    AwaitLayout,
+}
+
+/// A visible panel is raised, never skipped.
+///
+/// The panel is not modal and does not follow focus, so it can sit behind
+/// another window while still reporting `is_visible() == true`. Returning early
+/// on that state is what made a double-click on the pet a no-op, with no way
+/// back other than the taskbar entry.
+pub fn panel_reveal(visible: bool) -> PanelReveal {
+    if visible {
+        PanelReveal::RaiseExisting
+    } else {
+        PanelReveal::AwaitLayout
+    }
+}
+
 pub trait PlatformWindowAdapter {
     fn execute(&mut self, command: WindowCommand) -> Result<CapabilityDiagnostic, PlatformError>;
     fn displays(&self) -> Result<Vec<Display>, PlatformError>;
