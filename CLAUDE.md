@@ -70,6 +70,7 @@ Coverage gate is 80% on branches/functions/lines/statements (`vite.config.ts`); 
 - **Pet manifest contract:** packages require a valid `idle` state; asset protocol scope is locked to `$APPDATA/pets/*/frames/*.png` (`tauri.conf.json`). Directory names must satisfy `is_valid_pet_id` or the installer skips them. `docs/UI-plan/` art is _source only_ — never bundled into a release directly; it flows through `scripts/build-pet-packages.py`.
 - **Pet selection is independent of the primary provider.** The primary provider chooses which usage data drives the ring; the pet is its own setting. Neither may silently rewrite the other.
 - **Codex `initialize` RPC requires `clientInfo{name,version}`** or the provider drops to error (stderr is nulled, so no debug logs surface).
+- **Panel visibility policy:** the panel is always-on-top and is dismissed only by its explicit `✕` control — never by focus loss or an outside click. `show_panel` must raise and focus an already-visible panel rather than returning early, or a double-click on the pet becomes a no-op. The footer `Quit` is `app.exit(0)`, not a panel hide.
 
 ## Authoritative docs
 

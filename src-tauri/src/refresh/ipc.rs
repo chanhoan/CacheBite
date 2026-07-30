@@ -11,7 +11,10 @@ use crate::{
         HistoryRepository, HistoryStore, LogicalPosition, PetPackage, PetPackageRepository,
         PetSummary, Settings, SettingsRepository,
     },
-    window::{command_allowed, CapabilityDiagnostic, NativeCommand, PlatformCapabilities},
+    window::{
+        command_allowed, panel_reveal, CapabilityDiagnostic, NativeCommand, PanelReveal,
+        PlatformCapabilities,
+    },
 };
 use serde::Serialize;
 
@@ -266,6 +269,25 @@ pub fn update_settings(
     Ok(settings)
 }
 
+/// Brings the panel to the front of the window stack.
+///
+/// Every path that reveals the panel goes through here so a double-click on the
+/// pet always has a visible effect.
+fn reveal_panel(panel: &tauri::WebviewWindow) -> Result<(), IpcError> {
+    // A minimised panel still reports `is_visible() == true`, so restoring it has
+    // to happen before the raise or the focus lands on nothing.
+    if panel.is_minimized().unwrap_or(false) {
+        let _ = panel.unminimize();
+    }
+    panel.show().map_err(|_| IpcError::PanelUnavailable)?;
+    // Best-effort, mirroring `position_panel`: headless runners and restrictive
+    // Wayland compositors refuse focus changes, and promoting that to an error
+    // would fail the fixture jobs in native-smoke.yml for a panel that is in fact
+    // on screen.
+    let _ = panel.set_focus();
+    Ok(())
+}
+
 #[tauri::command]
 pub fn show_panel(
     window: tauri::WebviewWindow,
@@ -280,8 +302,12 @@ pub fn show_panel(
     // grace timer below can reveal the panel without a second placement pass.
     position_panel(&window, &panel)?;
 
-    if panel.is_visible().unwrap_or(false) {
-        return Ok(());
+    // Already on screen: the panel is not modal and does not follow focus, so it
+    // may be buried behind another window. Raise it instead of returning without
+    // a visible effect.
+    match panel_reveal(panel.is_visible().unwrap_or(false)) {
+        PanelReveal::RaiseExisting => return reveal_panel(&panel),
+        PanelReveal::AwaitLayout => {}
     }
     gate.awaiting_layout.store(true, Ordering::SeqCst);
 
@@ -294,7 +320,7 @@ pub fn show_panel(
             .swap(false, Ordering::SeqCst)
         {
             if let Some(panel) = deadline_app.get_webview_window("panel") {
-                let _ = panel.show();
+                let _ = reveal_panel(&panel);
             }
         }
     });
@@ -394,7 +420,7 @@ pub fn resize_panel(
     position_panel(&overlay, &panel)?;
     // The measurement this resize carries is what show_panel was waiting for.
     if gate.awaiting_layout.swap(false, Ordering::SeqCst) {
-        panel.show().map_err(|_| IpcError::PanelUnavailable)?;
+        reveal_panel(&panel)?;
     }
     Ok(())
 }

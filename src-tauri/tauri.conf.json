@@ -40,6 +40,7 @@
         "visible": false,
         "transparent": true,
         "decorations": false,
+        "alwaysOnTop": true,
         "resizable": false
       }
     ]

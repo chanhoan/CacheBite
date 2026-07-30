@@ -957,14 +957,26 @@ describe('application composition root', () => {
     ).toBeTruthy();
   });
 
-  it('closes the panel through the Quit button without quitting CacheBite', async () => {
+  it('hides the panel through the close control without quitting CacheBite', async () => {
+    window.history.replaceState({}, '', '/?window=panel');
+    const { gateway } = fixture();
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Close usage panel' }),
+    );
+    expect(gateway.hidePanel).toHaveBeenCalledOnce();
+    expect(gateway.quit).not.toHaveBeenCalled();
+  });
+
+  it('exits CacheBite through the footer Quit button', async () => {
     window.history.replaceState({}, '', '/?window=panel');
     const { gateway } = fixture();
     render(App, { props: { gateway, notificationAdapter: notifications } });
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Quit' }));
-    expect(gateway.hidePanel).toHaveBeenCalledOnce();
-    expect(gateway.quit).not.toHaveBeenCalled();
+    expect(gateway.quit).toHaveBeenCalledOnce();
+    expect(gateway.hidePanel).not.toHaveBeenCalled();
   });
 
   it('surfaces unavailable platform capabilities and disables autostart', async () => {
