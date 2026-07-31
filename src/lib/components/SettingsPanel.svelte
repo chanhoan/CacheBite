@@ -28,6 +28,8 @@
   /** @param {string} value @returns {import('../state/theme').ThemePreference} */
   const asTheme = (value) =>
     value === 'light' ? 'light' : value === 'dark' ? 'dark' : 'system';
+
+  const hideShowHotkeyHelpId = 'hide-show-hotkey-help';
 </script>
 
 <section class="settings" aria-labelledby="settings-heading">
@@ -101,6 +103,28 @@
         onChange({ ...settings, startAtLogin: event.currentTarget.checked })}
     /><span>Start at login</span></label
   >
+  <label class="field"
+    >Hide/show shortcut <input
+      type="text"
+      placeholder="CommandOrControl+Shift+H"
+      value={settings.hideShowHotkey ?? ''}
+      aria-describedby={hideShowHotkeyHelpId}
+      onchange={(event) => {
+        const value = event.currentTarget.value.trim();
+        onChange({ ...settings, hideShowHotkey: value === '' ? null : value });
+      }}
+    /></label
+  >
+  <p id={hideShowHotkeyHelpId} class="field-help">
+    Default: Windows/Linux Ctrl+Shift+H, macOS Cmd+Shift+H.
+    {#if settings.hideShowHotkey === null}
+      <span class="field-state">No shortcut active</span>
+    {:else}
+      <span class="field-state"
+        >Current shortcut: {settings.hideShowHotkey}</span
+      >
+    {/if}
+  </p>
 </section>
 
 <style>
@@ -148,5 +172,25 @@
     background: var(--color-surface);
     color: var(--color-text);
     font: inherit;
+  }
+  .field input[type='text'] {
+    width: 9.5rem;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: 0.4rem;
+    background: var(--color-surface);
+    color: var(--color-text);
+    font: inherit;
+  }
+  .field-help {
+    margin: 0;
+    color: var(--color-text-muted);
+    font-size: 0.75rem;
+    line-height: 1.4;
+  }
+  .field-state {
+    display: block;
+    margin-top: 0.2rem;
+    color: var(--color-text);
   }
 </style>

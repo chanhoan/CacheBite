@@ -10,6 +10,7 @@ export type SettingsStoreState = Pick<
   | 'startAtLogin'
   | 'notificationsEnabled'
   | 'secondaryNotificationsEnabled'
+  | 'hideShowHotkey'
 >;
 
 export function toSettingsStoreState(
@@ -22,6 +23,7 @@ export function toSettingsStoreState(
     startAtLogin: settings.startAtLogin,
     notificationsEnabled: settings.notificationsEnabled,
     secondaryNotificationsEnabled: settings.secondaryNotificationsEnabled,
+    hideShowHotkey: settings.hideShowHotkey,
   };
 }
 

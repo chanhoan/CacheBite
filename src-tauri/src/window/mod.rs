@@ -128,6 +128,13 @@ pub fn panel_reveal(visible: bool) -> PanelReveal {
     }
 }
 
+/// Whether the overlay should be shown again when fullscreen ends. `false` when
+/// the user explicitly hid it via the hide/show hotkey — fullscreen exiting must
+/// not silently reverse that.
+pub fn should_restore_overlay_after_fullscreen(user_hidden: bool) -> bool {
+    !user_hidden
+}
+
 pub trait PlatformWindowAdapter {
     fn execute(&mut self, command: WindowCommand) -> Result<CapabilityDiagnostic, PlatformError>;
     fn displays(&self) -> Result<Vec<Display>, PlatformError>;

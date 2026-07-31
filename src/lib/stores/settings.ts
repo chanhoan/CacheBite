@@ -8,6 +8,7 @@ export interface SettingsState {
   readonly startAtLogin: boolean;
   readonly notificationsEnabled: boolean;
   readonly secondaryNotificationsEnabled: boolean;
+  readonly hideShowHotkey: string | null;
 }
 export const defaultSettings: SettingsState = Object.freeze({
   primaryProvider: 'claude',
@@ -17,6 +18,7 @@ export const defaultSettings: SettingsState = Object.freeze({
   startAtLogin: false,
   notificationsEnabled: false,
   secondaryNotificationsEnabled: false,
+  hideShowHotkey: null,
 });
 export function createSettingsStore(initial: SettingsState = defaultSettings) {
   const { subscribe, update, set } = writable(Object.freeze({ ...initial }));

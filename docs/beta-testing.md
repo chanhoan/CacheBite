@@ -85,9 +85,15 @@ Uninstall by deleting the AppImage.
   display.
 - **Double-click** the pet to open the usage panel.
 - The panel has a **Settings** view: primary provider (which provider drives
-  the ring), pet selection, bubbles, notifications, start at login.
+  the ring), pet selection, bubbles, notifications, start at login, and a
+  hide/show shortcut.
 - The pet you choose is independent of the primary provider. Changing one must
   never change the other.
+- The hide/show shortcut works immediately on first run with no setup:
+  `Ctrl+Shift+H` on Windows/Linux and `Cmd+Shift+H` on macOS. Usage polling
+  keeps running in the background while hidden.
+- Use **Settings** only if you want to replace the preset or disable the
+  shortcut entirely.
 - The panel stays on top until you close it. Click the **×** at its top-right to
   hide it — CacheBite keeps running. Double-click the pet to bring the panel back
   to the front.
@@ -108,6 +114,9 @@ Uninstall by deleting the AppImage.
    out, offline, or rate limited.
 4. **Panel placement.** The panel should stay inside the work area of the
    display holding the pet, flipping rather than overflowing near an edge.
+5. **Hide/show shortcut conflicts.** If another app already owns the preset,
+   confirm CacheBite stays visible, the app does not claim the shortcut is
+   active, and Settings lets you replace or disable it.
 
 ## Reporting
 

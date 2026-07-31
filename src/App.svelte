@@ -86,6 +86,7 @@
     notificationsEnabled: false,
     secondaryNotificationsEnabled: false,
     logicalPosition: { x: 0, y: 0 },
+    hideShowHotkey: null,
   });
   let showSettings = $state(false);
   let themePreference = $state<ThemePreference>(
@@ -127,6 +128,7 @@
   const OVERLAY_WINDOW_PX = 240;
   let nowMs = $state(Date.now());
   let settingsSaveFailed = $state(false);
+  let hotkeySaveFailed = $state(false);
   let positionSaveFailed = $state(false);
   let notificationQueue: Promise<void> = Promise.resolve();
   let settingsQueue: Promise<void> = Promise.resolve();
@@ -557,10 +559,11 @@
         try {
           appSettings = await gateway.updateSettings(merged);
           settingsSaveFailed = false;
+          hotkeySaveFailed = false;
           // No overlay reload here: `changeSettings` only ever runs in the
           // panel window (`update_settings` is panel-authorized). The overlay
           // picks the change up through the `settings-updated` listener.
-        } catch {
+        } catch (error) {
           const reconciled = await serializeNotification((current) =>
             configureNotifications(
               current,
@@ -570,7 +573,8 @@
           ).catch(() => notificationState);
           notificationState = reconciled;
           notificationDiagnostic = reconciled.diagnostic;
-          settingsSaveFailed = true;
+          hotkeySaveFailed = error === 'hotkey_unavailable';
+          settingsSaveFailed = !hotkeySaveFailed;
         }
         settingsStore.replace(toSettingsStoreState(appSettings));
       });
@@ -671,7 +675,9 @@
           void changeSettings({ ...$settingsStore, primaryProvider: provider })}
       />
     {/if}
-    {#if settingsSaveFailed}<p role="status">
+    {#if hotkeySaveFailed}<p role="status">
+        Global shortcut could not be registered — it may already be in use
+      </p>{:else if settingsSaveFailed}<p role="status">
         Settings could not be saved
       </p>{/if}
     {#if platformCapabilities?.autostart.status === 'unavailable'}

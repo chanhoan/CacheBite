@@ -349,6 +349,12 @@ fn a_visible_panel_is_raised_rather_than_left_behind_another_window() {
 }
 
 #[test]
+fn fullscreen_exit_does_not_restore_a_hotkey_hidden_overlay() {
+    assert!(should_restore_overlay_after_fullscreen(false));
+    assert!(!should_restore_overlay_after_fullscreen(true));
+}
+
+#[test]
 fn normalizes_supported_platform_names_and_falls_back_to_linux() {
     assert_eq!(super::platform_os("macos"), "macos");
     assert_eq!(super::platform_os("windows"), "windows");

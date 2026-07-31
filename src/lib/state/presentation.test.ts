@@ -6,7 +6,7 @@ import { applyProviderUpdate, createProviderState } from './engine';
 import { toProviderPresentation, toSettingsStoreState } from './presentation';
 
 const settings: AppSettings = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   primaryProvider: 'claude',
   selectedPetId: 'tabby',
   bubblesEnabled: true,
@@ -14,6 +14,7 @@ const settings: AppSettings = {
   notificationsEnabled: true,
   secondaryNotificationsEnabled: false,
   logicalPosition: { x: 12, y: 34 },
+  hideShowHotkey: 'CmdOrCtrl+Shift+H',
 };
 
 const snapshot: ProviderUiSnapshot = {
@@ -38,6 +39,7 @@ describe('renderer presentation projections', () => {
       startAtLogin: false,
       notificationsEnabled: true,
       secondaryNotificationsEnabled: false,
+      hideShowHotkey: 'CmdOrCtrl+Shift+H',
     });
   });
 

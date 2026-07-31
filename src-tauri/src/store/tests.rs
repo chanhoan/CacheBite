@@ -11,6 +11,7 @@ use time::OffsetDateTime;
 
 use super::*;
 use crate::domain::{FailureClass, Provider, ProviderUsageSnapshot, Source, UsageWindow};
+use crate::store::settings::DEFAULT_HIDE_SHOW_HOTKEY;
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -71,6 +72,19 @@ fn settings_round_trip_is_versioned_and_atomic() {
 
     assert_eq!(repository.load().expect("load settings"), settings);
     assert_eq!(fs::read_dir(dir.path()).expect("read dir").count(), 1);
+}
+
+#[test]
+fn fresh_settings_load_from_an_empty_directory_with_the_preset_hotkey() {
+    let dir = TempDir::new().expect("temp dir");
+    let loaded = SettingsRepository::new(dir.path())
+        .load()
+        .expect("load defaults");
+
+    assert_eq!(
+        loaded.hide_show_hotkey,
+        Some(DEFAULT_HIDE_SHOW_HOTKEY.into())
+    );
 }
 
 #[test]
@@ -136,11 +150,11 @@ fn legacy_settings_are_migrated_and_rewritten() {
 
     let loaded = SettingsRepository::new(dir.path()).load().expect("migrate");
 
-    assert_eq!(loaded.schema_version, 3);
+    assert_eq!(loaded.schema_version, 4);
     assert_eq!(loaded.selected_pet_id, "old-pet");
     assert!(!loaded.bubble_enabled);
     let rewritten = fs::read_to_string(dir.path().join("settings.json")).expect("rewritten");
-    assert!(rewritten.contains("\"schema_version\": 3"));
+    assert!(rewritten.contains("\"schema_version\": 4"));
 }
 
 #[test]
@@ -154,7 +168,7 @@ fn version_one_settings_migrate_with_notifications_off() {
     let loaded = SettingsRepository::new(dir.path())
         .load()
         .expect("migrate v1");
-    assert_eq!(loaded.schema_version, 3);
+    assert_eq!(loaded.schema_version, 4);
     assert!(!loaded.notification_enabled);
 }
 
@@ -169,9 +183,85 @@ fn version_two_settings_migrate_with_secondary_notifications_off() {
     let loaded = SettingsRepository::new(dir.path())
         .load()
         .expect("migrate v2");
-    assert_eq!(loaded.schema_version, 3);
+    assert_eq!(loaded.schema_version, 4);
     assert!(loaded.notification_enabled);
     assert!(!loaded.secondary_notification_enabled);
+}
+
+#[test]
+fn version_three_settings_migrate_with_preset_hotkey() {
+    let dir = TempDir::new().expect("temp dir");
+    fs::write(
+        dir.path().join("settings.json"),
+        r#"{"schema_version":3,"primary_provider":"claude","selected_pet_id":"idle","bubble_enabled":true,"start_at_login":false,"notification_enabled":true,"secondary_notification_enabled":false,"logical_position":{"x":0.0,"y":0.0}}"#,
+    )
+    .expect("write v3 settings");
+    let loaded = SettingsRepository::new(dir.path())
+        .load()
+        .expect("migrate v3");
+    assert_eq!(loaded.schema_version, 4);
+    assert_eq!(
+        loaded.hide_show_hotkey,
+        Some(DEFAULT_HIDE_SHOW_HOTKEY.into())
+    );
+}
+
+#[test]
+fn version_four_settings_preserve_an_explicitly_disabled_hotkey() {
+    let dir = TempDir::new().expect("temp dir");
+    fs::write(
+        dir.path().join("settings.json"),
+        r#"{"schema_version":4,"primary_provider":"claude","selected_pet_id":"idle","bubble_enabled":true,"start_at_login":false,"notification_enabled":true,"secondary_notification_enabled":false,"logical_position":{"x":0.0,"y":0.0},"hide_show_hotkey":null}"#,
+    )
+    .expect("write v4 settings");
+    let loaded = SettingsRepository::new(dir.path()).load().expect("load v4");
+    assert_eq!(loaded.hide_show_hotkey, None);
+}
+
+#[test]
+fn settings_reject_a_malformed_hotkey() {
+    let dir = TempDir::new().expect("temp dir");
+    let repository = SettingsRepository::new(dir.path());
+    let settings = Settings {
+        hide_show_hotkey: Some("not a real shortcut".into()),
+        ..Settings::default()
+    };
+
+    let error = repository.save(&settings).expect_err("malformed hotkey");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+}
+
+#[test]
+fn settings_round_trip_a_valid_hotkey() {
+    let dir = TempDir::new().expect("temp dir");
+    let repository = SettingsRepository::new(dir.path());
+    let settings = Settings {
+        hide_show_hotkey: Some("CmdOrCtrl+Shift+H".into()),
+        ..Settings::default()
+    };
+
+    repository.save(&settings).expect("save settings");
+
+    assert_eq!(repository.load().expect("load settings"), settings);
+}
+
+#[test]
+fn clear_hotkey_removes_only_the_hotkey() {
+    let dir = TempDir::new().expect("temp dir");
+    let repository = SettingsRepository::new(dir.path());
+    let settings = Settings {
+        selected_pet_id: "corgi".into(),
+        hide_show_hotkey: Some("CmdOrCtrl+Shift+H".into()),
+        ..Settings::default()
+    };
+    repository.save(&settings).expect("save settings");
+
+    repository.clear_hotkey().expect("clear hotkey");
+
+    let loaded = repository.load().expect("load settings");
+    assert_eq!(loaded.hide_show_hotkey, None);
+    assert_eq!(loaded.selected_pet_id, "corgi");
 }
 
 #[test]
@@ -575,7 +665,7 @@ fn version_two_settings_carrying_the_retired_cat_pet_migrate_to_tabby() {
 
     // The V2 upgrade rewrites the file, then re-reads it so the current-schema
     // pass can repair the pet id the old file carried over.
-    assert_eq!(loaded.schema_version, 3);
+    assert_eq!(loaded.schema_version, 4);
     assert_eq!(loaded.selected_pet_id, "tabby");
     assert!(loaded.notification_enabled);
     assert_eq!(loaded.logical_position, LogicalPosition { x: 4.0, y: 8.0 });
