@@ -13,8 +13,8 @@ use crate::{
         PetSummary, Settings, SettingsRepository,
     },
     window::{
-        command_allowed, panel_reveal, CapabilityDiagnostic, HideShowHotkeyCapability,
-        NativeCommand, PanelReveal, PlatformCapabilities,
+        command_allowed, panel_toggle, CapabilityDiagnostic, HideShowHotkeyCapability,
+        NativeCommand, PanelToggle, PlatformCapabilities,
     },
 };
 use serde::Serialize;
@@ -27,17 +27,28 @@ pub const PROVIDER_STATE_EVENT: &str = "provider-state";
 const PANEL_ANCHOR_GAP_LOGICAL: f64 = 12.0;
 /// Fixed panel width in logical pixels. Only the height tracks content.
 const PANEL_WIDTH_LOGICAL: f64 = 312.0;
-/// How long `show_panel` waits for the renderer to report its measured height
+/// How long `toggle_panel` waits for the renderer to report its measured height
 /// before revealing the panel anyway. A single misplaced frame beats a panel
 /// that never appears because the renderer failed to measure.
 const PANEL_LAYOUT_GRACE: Duration = Duration::from_millis(150);
 
-/// Tracks a `show_panel` request that is still waiting for the renderer to
+/// Tracks a `toggle_panel` request that is still waiting for the renderer to
 /// report its content height, so the panel is revealed only once it has been
 /// placed at its final size.
 #[derive(Default)]
 pub struct PanelLayoutGate {
     awaiting_layout: AtomicBool,
+}
+
+impl PanelLayoutGate {
+    /// Cancels a pending reveal.
+    ///
+    /// Exposed because `lib.rs` hides the panel too — the hide/show hotkey and
+    /// the fullscreen monitor — and an armed grace timer would put the panel
+    /// back on screen milliseconds after it was hidden.
+    pub fn disarm(&self) {
+        self.awaiting_layout.store(false, Ordering::SeqCst);
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -76,6 +87,27 @@ pub struct ProviderStatesDto {
 pub enum CollectorMode {
     Fixture,
     Production,
+}
+
+/// The state the panel will be in once this toggle settles — and the state the
+/// next toggle will read.
+///
+/// Returned so the native boundary can be exercised end to end without a
+/// visibility query command. The renderer must not cache it: the `✕`, the
+/// hide/show hotkey and the fullscreen monitor all change panel visibility
+/// without going through the renderer at all.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PanelVisibility {
+    Shown,
+    Hidden,
+}
+
+#[cfg(feature = "webdriver")]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct WindowStateDto {
+    pub label: String,
+    pub is_visible: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -170,6 +202,20 @@ pub fn get_provider_states(
         claude: states.claude.into(),
         codex: states.codex.into(),
     })
+}
+
+#[cfg(feature = "webdriver")]
+#[tauri::command]
+pub fn get_window_states(app: AppHandle) -> Result<Vec<WindowStateDto>, IpcError> {
+    Ok(["overlay", "panel"]
+        .into_iter()
+        .filter_map(|label| {
+            app.get_webview_window(label).map(|window| WindowStateDto {
+                label: label.to_string(),
+                is_visible: window.is_visible().unwrap_or(false),
+            })
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -325,27 +371,27 @@ fn reveal_panel(panel: &tauri::WebviewWindow) -> Result<(), IpcError> {
     Ok(())
 }
 
-#[tauri::command]
-pub fn show_panel(
-    window: tauri::WebviewWindow,
-    app: AppHandle,
-    gate: State<'_, PanelLayoutGate>,
-) -> Result<(), IpcError> {
-    authorize(&window, NativeCommand::ShowPanel)?;
-    let panel = app
-        .get_webview_window("panel")
-        .ok_or(IpcError::PanelUnavailable)?;
-    // Place it now even though the renderer may resize it in a moment: the
-    // grace timer below can reveal the panel without a second placement pass.
-    position_panel(&window, &panel)?;
+/// Cancels any pending reveal, then hides the panel.
+///
+/// Every in-process path that hides the panel goes through here, so the
+/// double-click and the `✕` cannot leave the gate in different states.
+fn conceal_panel(panel: &tauri::WebviewWindow, gate: &PanelLayoutGate) -> Result<(), IpcError> {
+    gate.disarm();
+    panel.hide().map_err(|_| IpcError::PanelUnavailable)
+}
 
-    // Already on screen: the panel is not modal and does not follow focus, so it
-    // may be buried behind another window. Raise it instead of returning without
-    // a visible effect.
-    match panel_reveal(panel.is_visible().unwrap_or(false)) {
-        PanelReveal::RaiseExisting => return reveal_panel(&panel),
-        PanelReveal::AwaitLayout => {}
-    }
+/// Anchors the panel beside the pet and arms the layout gate.
+///
+/// The panel is placed before it is revealed even though the renderer may
+/// resize it in a moment: the grace timer below can reveal the panel without a
+/// second placement pass.
+fn begin_reveal(
+    anchor: &tauri::WebviewWindow,
+    panel: &tauri::WebviewWindow,
+    app: &AppHandle,
+    gate: &PanelLayoutGate,
+) -> Result<(), IpcError> {
+    position_panel(anchor, panel)?;
     gate.awaiting_layout.store(true, Ordering::SeqCst);
 
     let deadline_app = app.clone();
@@ -362,6 +408,36 @@ pub fn show_panel(
         }
     });
     Ok(())
+}
+
+/// Toggles the usage panel from the pet's double-click.
+///
+/// The decision is made here rather than in the renderer because the panel's
+/// visibility is changed by paths the renderer never sees: the `✕`, the
+/// hide/show hotkey, and the fullscreen monitor.
+#[tauri::command]
+pub fn toggle_panel(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+    gate: State<'_, PanelLayoutGate>,
+) -> Result<PanelVisibility, IpcError> {
+    authorize(&window, NativeCommand::TogglePanel)?;
+    let panel = app
+        .get_webview_window("panel")
+        .ok_or(IpcError::PanelUnavailable)?;
+    match panel_toggle(
+        panel.is_visible().unwrap_or(false),
+        gate.awaiting_layout.load(Ordering::SeqCst),
+    ) {
+        PanelToggle::Hide => {
+            conceal_panel(&panel, gate.inner())?;
+            Ok(PanelVisibility::Hidden)
+        }
+        PanelToggle::Show => {
+            begin_reveal(&window, &panel, &app, gate.inner())?;
+            Ok(PanelVisibility::Shown)
+        }
+    }
 }
 
 pub(crate) fn position_panel(
@@ -455,7 +531,7 @@ pub fn resize_panel(
         .get_webview_window("overlay")
         .ok_or(IpcError::PanelUnavailable)?;
     position_panel(&overlay, &panel)?;
-    // The measurement this resize carries is what show_panel was waiting for.
+    // The measurement this resize carries is what toggle_panel was waiting for.
     if gate.awaiting_layout.swap(false, Ordering::SeqCst) {
         reveal_panel(&panel)?;
     }
@@ -468,9 +544,7 @@ pub fn hide_panel(
     gate: State<'_, PanelLayoutGate>,
 ) -> Result<(), IpcError> {
     authorize(&window, NativeCommand::HidePanel)?;
-    // Stop a pending grace timer from resurrecting the panel just closed.
-    gate.awaiting_layout.store(false, Ordering::SeqCst);
-    window.hide().map_err(|_| IpcError::PanelUnavailable)
+    conceal_panel(&window, gate.inner())
 }
 
 #[tauri::command]
