@@ -337,7 +337,7 @@ fn hide_show_hotkey_capability_reports_both_registration_outcomes() {
 #[test]
 fn native_commands_are_authorized_by_window_label() {
     assert!(command_allowed("overlay", NativeCommand::GetCollectorMode));
-    assert!(command_allowed("overlay", NativeCommand::ShowPanel));
+    assert!(command_allowed("overlay", NativeCommand::TogglePanel));
     assert!(!command_allowed("overlay", NativeCommand::ResizePanel));
     assert!(command_allowed("overlay", NativeCommand::GetProviderStates));
     assert!(command_allowed("overlay", NativeCommand::GetSettings));
@@ -361,13 +361,19 @@ fn native_commands_are_authorized_by_window_label() {
     assert!(command_allowed("panel", NativeCommand::HidePanel));
     assert!(command_allowed("panel", NativeCommand::ResizePanel));
     assert!(!command_allowed("panel", NativeCommand::SavePosition));
-    assert!(!command_allowed("unknown", NativeCommand::ShowPanel));
+    // The pet gesture is the overlay's; the panel dismisses itself with `hide_panel`.
+    assert!(!command_allowed("panel", NativeCommand::TogglePanel));
+    assert!(!command_allowed("unknown", NativeCommand::TogglePanel));
 }
 
 #[test]
-fn a_visible_panel_is_raised_rather_than_left_behind_another_window() {
-    assert_eq!(panel_reveal(true), PanelReveal::RaiseExisting);
-    assert_eq!(panel_reveal(false), PanelReveal::AwaitLayout);
+fn a_visible_or_pending_panel_is_hidden_and_a_hidden_one_is_shown() {
+    assert_eq!(panel_toggle(false, false), PanelToggle::Show);
+    assert_eq!(panel_toggle(true, false), PanelToggle::Hide);
+    // Rapid double-clicks: the second one cancels the reveal the first armed
+    // rather than arming a second one on a panel that is already on its way.
+    assert_eq!(panel_toggle(false, true), PanelToggle::Hide);
+    assert_eq!(panel_toggle(true, true), PanelToggle::Hide);
 }
 
 #[test]

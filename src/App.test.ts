@@ -140,7 +140,7 @@ const fixture = () => {
     refreshProvider: vi.fn(async () => undefined),
     startDragging: vi.fn(async () => undefined),
     listenPositionMoved: vi.fn(async () => () => undefined),
-    showPanel: vi.fn(async () => undefined),
+    togglePanel: vi.fn(async () => 'shown' as const),
     resizePanel: vi.fn(async () => undefined),
     hidePanel: vi.fn(async () => undefined),
     quit: vi.fn(async () => undefined),
@@ -167,7 +167,7 @@ describe('application composition root', () => {
     window.history.replaceState({}, '', '/');
   });
 
-  it('hydrates overlay and opens the panel only on a circular-surface double-click', async () => {
+  it('hydrates overlay and toggles the panel only on a circular-surface double-click', async () => {
     const { gateway, emit } = fixture();
     render(App, { props: { gateway, notificationAdapter: notifications } });
     expect(await screen.findByLabelText('CacheBite pet status')).toBeTruthy();
@@ -182,9 +182,11 @@ describe('application composition root', () => {
     const overlay = screen.getByTestId('overlay-pointer-surface');
     await fireEvent.pointerDown(overlay, { clientX: 10, clientY: 10 });
     await fireEvent.pointerUp(overlay, { clientX: 12, clientY: 10 });
-    expect(gateway.showPanel).not.toHaveBeenCalled();
+    expect(gateway.togglePanel).not.toHaveBeenCalled();
     await fireEvent.dblClick(overlay);
-    expect(gateway.showPanel).toHaveBeenCalledOnce();
+    await fireEvent.dblClick(overlay);
+    await fireEvent.dblClick(overlay);
+    expect(gateway.togglePanel).toHaveBeenCalledTimes(3);
     expect(
       screen.getByLabelText('CacheBite').getAttribute('data-platform'),
     ).toBe('linux');
@@ -930,7 +932,7 @@ describe('application composition root', () => {
     expect(
       screen.queryByRole('button', { name: '5-hour usage is exhausted' }),
     ).toBeNull();
-    expect(gateway.showPanel).not.toHaveBeenCalled();
+    expect(gateway.togglePanel).not.toHaveBeenCalled();
   });
 
   it('ages a fresh snapshot into stale without any new provider event', async () => {
@@ -993,6 +995,7 @@ describe('application composition root', () => {
       await screen.findByRole('button', { name: 'Close usage panel' }),
     );
     expect(gateway.hidePanel).toHaveBeenCalledOnce();
+    expect(gateway.togglePanel).not.toHaveBeenCalled();
     expect(gateway.quit).not.toHaveBeenCalled();
   });
 
@@ -1004,6 +1007,7 @@ describe('application composition root', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Quit' }));
     expect(gateway.quit).toHaveBeenCalledOnce();
     expect(gateway.hidePanel).not.toHaveBeenCalled();
+    expect(gateway.togglePanel).not.toHaveBeenCalled();
   });
 
   it('surfaces unavailable platform capabilities and disables autostart', async () => {

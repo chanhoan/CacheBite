@@ -1,5 +1,6 @@
 import { cleanup, render, screen } from '@testing-library/svelte';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent } from '@testing-library/svelte';
 
 import PetOverlay from './PetOverlay.svelte';
 
@@ -40,11 +41,36 @@ describe('PetOverlay', () => {
     expect(screen.getByText('WK').getAttribute('font-size')).toBe('9');
     expect(screen.getByText('WK').getAttribute('y')).toBe('104');
     const surface = screen.getByRole('button', {
-      name: 'Move pet; double-click or press Enter for usage',
+      name: 'Move pet; double-click or press Enter to show or hide usage',
     });
     expect(surface.getAttribute('data-testid')).toBe('overlay-pointer-surface');
     expect(surface.style.clipPath).toBe('circle(50% at 50% 50%)');
     expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('routes both the double-click and the Enter key to a single toggle request', async () => {
+    const onToggle = vi.fn();
+    render(PetOverlay, {
+      props: {
+        model: {
+          system: 'active',
+          stale: false,
+          session: { usedPercent: 74, severity: 'warn' },
+          weekly: { usedPercent: 93, severity: 'critical' },
+          animation,
+          petName: 'Geometric pet',
+          size: 160,
+        },
+        onToggle,
+      },
+    });
+
+    const surface = screen.getByTestId('overlay-pointer-surface');
+
+    await fireEvent.dblClick(surface);
+    expect(onToggle).toHaveBeenCalledOnce();
+    await fireEvent.keyDown(surface, { key: 'Enter' });
+    expect(onToggle).toHaveBeenCalledTimes(2);
   });
 
   it('renders an unknown window as a neutral unfilled track', () => {

@@ -65,6 +65,13 @@ export interface PlatformCapabilities {
   readonly hide_show_hotkey: CapabilityDiagnostic;
 }
 export type CollectorMode = 'fixture' | 'production';
+/**
+ * The state the panel settles into after a toggle. Reported for diagnostics
+ * and tests only — panel visibility also changes through the `✕`, the
+ * hide/show hotkey and the fullscreen monitor, so the renderer must never
+ * cache this as its own copy of the panel state.
+ */
+export type PanelVisibility = 'shown' | 'hidden';
 export interface CollectorModeDiagnostic {
   readonly claude: CollectorMode;
   readonly codex: CollectorMode;
@@ -92,7 +99,8 @@ export interface AppGateway {
     next: (position: AppSettings['logicalPosition']) => void,
     onSaveFailure?: (failure: 'position_save_failed') => void,
   ): Promise<() => void>;
-  showPanel(): Promise<void>;
+  /** Authorized for the `overlay` window only (`window::command_allowed`). */
+  togglePanel(): Promise<PanelVisibility>;
   /** Keeps the native panel frame fitted to its rendered content. */
   resizePanel(height: number): Promise<void>;
   /** Authorized for the `panel` window only (`window::command_allowed`). */
@@ -247,7 +255,7 @@ export const tauriGateway: AppGateway = {
       unlisten();
     };
   },
-  showPanel: () => invokeNative('show_panel'),
+  togglePanel: () => invokeNative('toggle_panel'),
   resizePanel: (height) => {
     if (!Number.isFinite(height) || height <= 0) {
       return Promise.reject(

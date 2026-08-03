@@ -705,7 +705,7 @@
           onPointerMove={pointerMove}
           onPointerUp={pointerUp}
           onPointerCancel={pointerCancel}
-          onOpen={() => void gateway.showPanel()}
+          onToggle={() => void gateway.togglePanel()}
         />
       {:else if petPackageError}
         <p role="status">Pet package unavailable</p>

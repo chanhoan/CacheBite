@@ -9,6 +9,47 @@ use std::{fs, io, path::Path};
 #[cfg(test)]
 mod domain_test;
 
+#[cfg(feature = "webdriver")]
+fn apply_invoke_handler(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+    builder.invoke_handler(tauri::generate_handler![
+        refresh::ipc::get_collector_mode,
+        refresh::ipc::get_provider_states,
+        refresh::ipc::get_window_states,
+        refresh::ipc::get_settings,
+        refresh::ipc::get_history,
+        refresh::ipc::get_pet_package,
+        refresh::ipc::list_pet_packages,
+        refresh::ipc::get_platform_capabilities,
+        refresh::ipc::save_position,
+        refresh::ipc::refresh_provider,
+        refresh::ipc::update_settings,
+        refresh::ipc::toggle_panel,
+        refresh::ipc::resize_panel,
+        refresh::ipc::hide_panel,
+        refresh::ipc::quit,
+    ])
+}
+
+#[cfg(not(feature = "webdriver"))]
+fn apply_invoke_handler(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+    builder.invoke_handler(tauri::generate_handler![
+        refresh::ipc::get_collector_mode,
+        refresh::ipc::get_provider_states,
+        refresh::ipc::get_settings,
+        refresh::ipc::get_history,
+        refresh::ipc::get_pet_package,
+        refresh::ipc::list_pet_packages,
+        refresh::ipc::get_platform_capabilities,
+        refresh::ipc::save_position,
+        refresh::ipc::refresh_provider,
+        refresh::ipc::update_settings,
+        refresh::ipc::toggle_panel,
+        refresh::ipc::resize_panel,
+        refresh::ipc::hide_panel,
+        refresh::ipc::quit,
+    ])
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
@@ -31,6 +72,7 @@ pub fn run() {
         );
     #[cfg(feature = "webdriver")]
     let builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
+    let builder = apply_invoke_handler(builder);
 
     builder
         .setup(|app| {
@@ -131,22 +173,6 @@ pub fn run() {
             start_fullscreen_monitor(app.handle().clone());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
-            refresh::ipc::get_collector_mode,
-            refresh::ipc::get_provider_states,
-            refresh::ipc::get_settings,
-            refresh::ipc::get_history,
-            refresh::ipc::get_pet_package,
-            refresh::ipc::list_pet_packages,
-            refresh::ipc::get_platform_capabilities,
-            refresh::ipc::save_position,
-            refresh::ipc::refresh_provider,
-            refresh::ipc::update_settings,
-            refresh::ipc::show_panel,
-            refresh::ipc::resize_panel,
-            refresh::ipc::hide_panel,
-            refresh::ipc::quit,
-        ])
         .run(tauri::generate_context!())
         .expect("failed to run CacheBite");
 }
@@ -216,6 +242,11 @@ fn toggle_overlay_visibility(app: &tauri::AppHandle) {
     if hidden {
         let _ = overlay.hide();
         if let Some(panel) = app.get_webview_window("panel") {
+            // A reveal armed moments ago would otherwise put the panel back on
+            // screen while the pet it belongs to is hidden.
+            if let Some(gate) = app.try_state::<refresh::ipc::PanelLayoutGate>() {
+                gate.disarm();
+            }
             let _ = panel.hide();
         }
         return;
@@ -276,6 +307,9 @@ fn start_fullscreen_monitor(app: tauri::AppHandle) {
             }
             if fullscreen {
                 if let Some(panel) = app.get_webview_window("panel") {
+                    if let Some(gate) = app.try_state::<refresh::ipc::PanelLayoutGate>() {
+                        gate.disarm();
+                    }
                     let _ = panel.hide();
                 }
             }
@@ -474,7 +508,7 @@ fn restore_window_positions(app: &tauri::App, settings: &store::Settings) {
     let Some(panel) = app.get_webview_window("panel") else {
         return;
     };
-    // Share the placement policy with show_panel/resize_panel rather than
+    // Share the placement policy with toggle_panel/resize_panel rather than
     // reimplementing it here — this path used the full monitor bounds and a
     // separately scaled gap, so the two disagreed on HiDPI displays.
     let _ = refresh::ipc::position_panel(&overlay, &panel);

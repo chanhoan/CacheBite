@@ -71,7 +71,7 @@ pub enum NativeCommand {
     SavePosition,
     RefreshProvider,
     UpdateSettings,
-    ShowPanel,
+    TogglePanel,
     ResizePanel,
     HidePanel,
     Quit,
@@ -87,7 +87,7 @@ pub fn command_allowed(window_label: &str, command: NativeCommand) -> bool {
                 | NativeCommand::GetPetPackage
                 | NativeCommand::GetPlatformCapabilities
                 | NativeCommand::SavePosition
-                | NativeCommand::ShowPanel
+                | NativeCommand::TogglePanel
         ),
         "panel" => matches!(
             command,
@@ -100,7 +100,6 @@ pub fn command_allowed(window_label: &str, command: NativeCommand) -> bool {
                 | NativeCommand::GetPlatformCapabilities
                 | NativeCommand::RefreshProvider
                 | NativeCommand::UpdateSettings
-                | NativeCommand::ShowPanel
                 | NativeCommand::ResizePanel
                 | NativeCommand::HidePanel
                 | NativeCommand::Quit
@@ -109,28 +108,30 @@ pub fn command_allowed(window_label: &str, command: NativeCommand) -> bool {
     }
 }
 
-/// What `show_panel` must do for a panel in the given visibility state.
+/// What a pet double-click must do for a panel in the given state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PanelReveal {
-    /// Already on screen: raise and focus it, leaving the layout gate alone —
-    /// the height the renderer last reported still applies.
-    RaiseExisting,
-    /// Off screen: arm the layout gate so the reveal waits for the renderer to
-    /// measure its content height.
-    AwaitLayout,
+pub enum PanelToggle {
+    /// On screen, or on its way there: hide it. CacheBite keeps running and
+    /// keeps polling.
+    Hide,
+    /// Off screen: anchor it and arm the layout gate, so the reveal waits for
+    /// the renderer to measure its content height.
+    Show,
 }
 
-/// A visible panel is raised, never skipped.
+/// A reveal that is still waiting for the renderer counts as visible.
 ///
-/// The panel is not modal and does not follow focus, so it can sit behind
-/// another window while still reporting `is_visible() == true`. Returning early
-/// on that state is what made a double-click on the pet a no-op, with no way
-/// back other than the taskbar entry.
-pub fn panel_reveal(visible: bool) -> PanelReveal {
-    if visible {
-        PanelReveal::RaiseExisting
+/// `show()` is deferred until the renderer reports its height, or until the
+/// grace timer fires, so for a moment the panel reports `is_visible() == false`
+/// while already being on its way to the screen. Reading visibility alone would
+/// make a second double-click inside that window arm the reveal a second time
+/// instead of cancelling it — the panel would appear right after the gesture
+/// meant to dismiss it.
+pub fn panel_toggle(visible: bool, reveal_pending: bool) -> PanelToggle {
+    if visible || reveal_pending {
+        PanelToggle::Hide
     } else {
-        PanelReveal::AwaitLayout
+        PanelToggle::Show
     }
 }
 
