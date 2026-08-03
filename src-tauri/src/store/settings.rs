@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::{path_lock, quarantine, write_json_atomically};
 use crate::domain::{is_valid_pet_id, Provider};
 
-const SETTINGS_SCHEMA_VERSION: u32 = 3;
+const SETTINGS_SCHEMA_VERSION: u32 = 5;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -82,6 +82,39 @@ struct SettingsV2 {
     bubble_enabled: bool,
     start_at_login: bool,
     notification_enabled: bool,
+    logical_position: LogicalPosition,
+}
+
+/// Schema v4 carried a persisted hide/show accelerator. It is gone in v5: the
+/// binding is a fixed constant, and a stored value could only ever record a
+/// failure as a permanent opt-out. The field is still declared here because
+/// `deny_unknown_fields` would otherwise reject every v4 file and quarantine it,
+/// taking the position and notification settings down with it.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SettingsV4 {
+    schema_version: u32,
+    primary_provider: Provider,
+    selected_pet_id: String,
+    bubble_enabled: bool,
+    start_at_login: bool,
+    notification_enabled: bool,
+    secondary_notification_enabled: bool,
+    logical_position: LogicalPosition,
+    #[allow(dead_code)]
+    hide_show_hotkey: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SettingsV3 {
+    schema_version: u32,
+    primary_provider: Provider,
+    selected_pet_id: String,
+    bubble_enabled: bool,
+    start_at_login: bool,
+    notification_enabled: bool,
+    secondary_notification_enabled: bool,
     logical_position: LogicalPosition,
 }
 
@@ -188,6 +221,40 @@ impl SettingsRepository {
                     bubble_enabled: previous.bubble_enabled,
                     start_at_login: previous.start_at_login,
                     notification_enabled: previous.notification_enabled,
+                    logical_position: previous.logical_position,
+                    ..Settings::default()
+                };
+                validate(&migrated)?;
+                write_json_atomically(&self.path, &migrated)?;
+                return self.load_locked();
+            }
+        }
+        if let Ok(previous) = serde_json::from_slice::<SettingsV4>(&bytes) {
+            if previous.schema_version == 4 {
+                let migrated = Settings {
+                    primary_provider: previous.primary_provider,
+                    selected_pet_id: previous.selected_pet_id,
+                    bubble_enabled: previous.bubble_enabled,
+                    start_at_login: previous.start_at_login,
+                    notification_enabled: previous.notification_enabled,
+                    secondary_notification_enabled: previous.secondary_notification_enabled,
+                    logical_position: previous.logical_position,
+                    ..Settings::default()
+                };
+                validate(&migrated)?;
+                write_json_atomically(&self.path, &migrated)?;
+                return self.load_locked();
+            }
+        }
+        if let Ok(previous) = serde_json::from_slice::<SettingsV3>(&bytes) {
+            if previous.schema_version == 3 {
+                let migrated = Settings {
+                    primary_provider: previous.primary_provider,
+                    selected_pet_id: previous.selected_pet_id,
+                    bubble_enabled: previous.bubble_enabled,
+                    start_at_login: previous.start_at_login,
+                    notification_enabled: previous.notification_enabled,
+                    secondary_notification_enabled: previous.secondary_notification_enabled,
                     logical_position: previous.logical_position,
                     ..Settings::default()
                 };

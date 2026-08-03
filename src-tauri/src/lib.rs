@@ -19,7 +19,16 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
-        ));
+        ))
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        toggle_overlay_visibility(app);
+                    }
+                })
+                .build(),
+        );
     #[cfg(feature = "webdriver")]
     let builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
 
@@ -43,6 +52,17 @@ pub fn run() {
                 eprintln!("failed to install bundled pet packages: {error}");
             }
             let settings_repository = store::SettingsRepository::new(&app_data);
+            // Managed before the hotkey is registered: the global-shortcut
+            // plugin is already live at this point (installed on the builder
+            // chain), so a hotkey press dispatched to toggle_overlay_visibility
+            // before this state exists would panic on app.state::<OverlayHideGate>().
+            app.manage(OverlayHideGate::default());
+            // Registration is deliberately outside the settings load: the
+            // binding is a constant, so a settings file that fails to load must
+            // not also cost the user their shortcut.
+            app.manage(window::HideShowHotkeyCapability(register_default_hotkey(
+                app.handle(),
+            )));
             if let Ok(settings) = settings_repository.load() {
                 restore_window_positions(app, &settings);
             }
@@ -171,8 +191,64 @@ fn production_collectors(
     ))
 }
 
+/// Whether the overlay is hidden because the user explicitly toggled it via the
+/// hide/show hotkey — as opposed to the (independent, Windows-only) fullscreen
+/// monitor hiding it automatically. Both hide/show call sites consult this so
+/// exiting fullscreen never resurrects a pet the user explicitly hid.
+#[derive(Default)]
+struct OverlayHideGate {
+    user_hidden: std::sync::atomic::AtomicBool,
+}
+
+fn toggle_overlay_visibility(app: &tauri::AppHandle) {
+    use std::sync::atomic::Ordering;
+    use tauri::Manager;
+
+    let gate = app.state::<OverlayHideGate>();
+    let hidden = {
+        let next = !gate.user_hidden.load(Ordering::SeqCst);
+        gate.user_hidden.store(next, Ordering::SeqCst);
+        next
+    };
+    let Some(overlay) = app.get_webview_window("overlay") else {
+        return;
+    };
+    if hidden {
+        let _ = overlay.hide();
+        if let Some(panel) = app.get_webview_window("panel") {
+            let _ = panel.hide();
+        }
+        return;
+    }
+    #[cfg(windows)]
+    if window::foreground_window_is_fullscreen() {
+        // Leave it hidden; start_fullscreen_monitor's exit edge will show it
+        // once fullscreen ends, now that user_hidden is false.
+        return;
+    }
+    let _ = overlay.show();
+}
+
+/// Claims the fixed hide/show shortcut, reporting the outcome instead of
+/// persisting it.
+///
+/// A conflict — another app, or a second CacheBite instance started while the
+/// login-launched one already holds the combination — used to clear the saved
+/// hotkey, turning one transient failure into a permanently disabled shortcut
+/// with no way back. Nothing is written now, so the next launch simply tries
+/// again.
+fn register_default_hotkey(app: &tauri::AppHandle) -> window::CapabilityDiagnostic {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+
+    window::hide_show_hotkey_capability(
+        app.global_shortcut()
+            .register(window::DEFAULT_HIDE_SHOW_HOTKEY),
+    )
+}
+
 #[cfg(windows)]
 fn start_fullscreen_monitor(app: tauri::AppHandle) {
+    use std::sync::atomic::Ordering;
     use std::time::Duration;
     use tauri::Manager;
 
@@ -186,10 +262,16 @@ fn start_fullscreen_monitor(app: tauri::AppHandle) {
             }
             hidden_for_fullscreen = fullscreen;
             if let Some(overlay) = app.get_webview_window("overlay") {
+                let user_hidden = app
+                    .state::<OverlayHideGate>()
+                    .user_hidden
+                    .load(Ordering::SeqCst);
                 let _ = if fullscreen {
                     overlay.hide()
-                } else {
+                } else if window::should_restore_overlay_after_fullscreen(user_hidden) {
                     overlay.show()
+                } else {
+                    Ok(())
                 };
             }
             if fullscreen {

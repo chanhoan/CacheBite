@@ -40,7 +40,7 @@ export const rendererFixtureGateway: AppGateway = {
     codex: provider('codex'),
   }),
   getSettings: async () => ({
-    schemaVersion: 3,
+    schemaVersion: 5,
     primaryProvider: 'claude',
     selectedPetId: 'fixture-pet',
     bubblesEnabled: true,
@@ -94,6 +94,7 @@ export const rendererFixtureGateway: AppGateway = {
     always_on_top: { status: 'available' },
     fullscreen_detection: { status: 'available' },
     autostart: { status: 'available' },
+    hide_show_hotkey: { status: 'available' },
   }),
   updateSettings: async (settings) => settings,
   getHistory: async () => ({

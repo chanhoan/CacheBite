@@ -301,13 +301,35 @@ fn autostart_is_idempotent_and_reports_visible_degradation() {
         CapabilityDiagnostic::Unavailable { .. }
     ));
     assert_eq!(unsupported.enable_calls, 0);
-    let capabilities = PlatformCapabilities::linux_wayland(false, false);
+    let capabilities = PlatformCapabilities::linux_wayland(false, false, false);
     assert!(matches!(
         capabilities.always_on_top,
         CapabilityDiagnostic::Unavailable { .. }
     ));
     assert!(matches!(
         capabilities.fullscreen_detection,
+        CapabilityDiagnostic::Unavailable { .. }
+    ));
+    assert!(matches!(
+        capabilities.hide_show_hotkey,
+        CapabilityDiagnostic::Unavailable { .. }
+    ));
+    assert_eq!(
+        PlatformCapabilities::linux_wayland(true, true, true).hide_show_hotkey,
+        CapabilityDiagnostic::Available
+    );
+}
+
+/// The startup registration path reports through this mapping, so an inverted
+/// or dropped branch here would tell the panel a claimed shortcut is live.
+#[test]
+fn hide_show_hotkey_capability_reports_both_registration_outcomes() {
+    assert_eq!(
+        hide_show_hotkey_capability(Ok::<(), ()>(())),
+        CapabilityDiagnostic::Available
+    );
+    assert!(matches!(
+        hide_show_hotkey_capability(Err::<(), ()>(())),
         CapabilityDiagnostic::Unavailable { .. }
     ));
 }
@@ -346,6 +368,12 @@ fn native_commands_are_authorized_by_window_label() {
 fn a_visible_panel_is_raised_rather_than_left_behind_another_window() {
     assert_eq!(panel_reveal(true), PanelReveal::RaiseExisting);
     assert_eq!(panel_reveal(false), PanelReveal::AwaitLayout);
+}
+
+#[test]
+fn fullscreen_exit_does_not_restore_a_hotkey_hidden_overlay() {
+    assert!(should_restore_overlay_after_fullscreen(false));
+    assert!(!should_restore_overlay_after_fullscreen(true));
 }
 
 #[test]

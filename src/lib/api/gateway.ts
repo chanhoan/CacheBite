@@ -61,6 +61,8 @@ export interface PlatformCapabilities {
   readonly always_on_top: CapabilityDiagnostic;
   readonly fullscreen_detection: CapabilityDiagnostic;
   readonly autostart: CapabilityDiagnostic;
+  /** Whether the fixed hide/show shortcut was claimed at startup. */
+  readonly hide_show_hotkey: CapabilityDiagnostic;
 }
 export type CollectorMode = 'fixture' | 'production';
 export interface CollectorModeDiagnostic {

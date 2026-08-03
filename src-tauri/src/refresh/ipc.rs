@@ -1,3 +1,4 @@
+use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,8 +13,8 @@ use crate::{
         PetSummary, Settings, SettingsRepository,
     },
     window::{
-        command_allowed, panel_reveal, CapabilityDiagnostic, NativeCommand, PanelReveal,
-        PlatformCapabilities,
+        command_allowed, panel_reveal, CapabilityDiagnostic, HideShowHotkeyCapability,
+        NativeCommand, PanelReveal, PlatformCapabilities,
     },
 };
 use serde::Serialize;
@@ -106,7 +107,7 @@ pub fn get_collector_mode(
     Ok(*mode)
 }
 
-#[derive(Clone, Copy, Debug, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum IpcError {
     Forbidden,
@@ -115,6 +116,41 @@ pub enum IpcError {
     InvalidPanelSize,
     PersistenceUnavailable,
     PanelUnavailable,
+    SettingsRollbackFailed,
+}
+
+/// Saves first, then applies the one OS-facing setting that can fail. A failed
+/// side effect rolls the persisted file back, so the saved state never claims
+/// something the OS refused.
+fn persist_and_apply_settings<SaveSettings, SetAutostart>(
+    previous: &Settings,
+    settings: &Settings,
+    mut save_settings: SaveSettings,
+    mut set_autostart: SetAutostart,
+) -> Result<(), IpcError>
+where
+    SaveSettings: FnMut(&Settings) -> io::Result<()>,
+    SetAutostart: FnMut(bool) -> Result<(), ()>,
+{
+    save_settings(settings).map_err(|error| {
+        if error.kind() == io::ErrorKind::InvalidData {
+            IpcError::InvalidSettings
+        } else {
+            IpcError::PersistenceUnavailable
+        }
+    })?;
+
+    if previous.start_at_login != settings.start_at_login
+        && set_autostart(settings.start_at_login).is_err()
+    {
+        if save_settings(previous).is_err() {
+            eprintln!("failed to restore persisted settings after settings update failure");
+            return Err(IpcError::SettingsRollbackFailed);
+        }
+        return Err(IpcError::ServiceUnavailable);
+    }
+
+    Ok(())
 }
 
 fn authorize(window: &tauri::WebviewWindow, command: NativeCommand) -> Result<(), IpcError> {
@@ -197,6 +233,7 @@ pub fn list_pet_packages(
 #[tauri::command]
 pub fn get_platform_capabilities(
     window: tauri::WebviewWindow,
+    hotkey: State<'_, HideShowHotkeyCapability>,
 ) -> Result<PlatformCapabilities, IpcError> {
     authorize(&window, NativeCommand::GetPlatformCapabilities)?;
     let fullscreen_detection = if cfg!(windows) {
@@ -213,6 +250,7 @@ pub fn get_platform_capabilities(
         },
         fullscreen_detection,
         autostart: CapabilityDiagnostic::Available,
+        hide_show_hotkey: hotkey.0.clone(),
     })
 }
 
@@ -243,29 +281,28 @@ pub fn update_settings(
     let previous = repository
         .load()
         .map_err(|_| IpcError::PersistenceUnavailable)?;
-    repository.save(&settings).map_err(|error| {
-        if error.kind() == std::io::ErrorKind::InvalidData {
-            IpcError::InvalidSettings
-        } else {
-            IpcError::PersistenceUnavailable
-        }
-    })?;
-    if previous.start_at_login != settings.start_at_login {
-        use tauri_plugin_autostart::ManagerExt;
+    use tauri_plugin_autostart::ManagerExt;
 
-        let manager = app.autolaunch();
-        let result = if settings.start_at_login {
-            manager.enable()
-        } else {
-            manager.disable()
-        };
-        if result.is_err() {
-            let _ = repository.save(&previous);
-            return Err(IpcError::ServiceUnavailable);
-        }
+    let autostart = app.autolaunch();
+    persist_and_apply_settings(
+        &previous,
+        &settings,
+        |value| repository.save(value),
+        |enabled| {
+            let result = if enabled {
+                autostart.enable()
+            } else {
+                autostart.disable()
+            };
+            result.map_err(|_| ())
+        },
+    )?;
+    // Persistence and OS integrations are committed at this point. Reporting
+    // an event-delivery failure as a save failure would invite the caller to
+    // retry a transaction that already succeeded.
+    if app.emit("settings-updated", &settings).is_err() {
+        eprintln!("failed to emit settings-updated after settings were committed");
     }
-    app.emit("settings-updated", &settings)
-        .map_err(|_| IpcError::ServiceUnavailable)?;
     Ok(settings)
 }
 
@@ -480,5 +517,88 @@ pub fn emit_provider_states(app: &AppHandle, service: &RefreshService) {
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod settings_effect_tests {
+    use std::cell::RefCell;
+    use std::io;
+
+    use super::{persist_and_apply_settings, IpcError, Settings};
+
+    fn settings(start_at_login: bool) -> Settings {
+        Settings {
+            start_at_login,
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn an_unchanged_autostart_value_is_never_reapplied() {
+        let previous = settings(true);
+        let next = Settings {
+            bubble_enabled: false,
+            ..settings(true)
+        };
+        let autostart_calls = RefCell::new(0);
+
+        let result = persist_and_apply_settings(
+            &previous,
+            &next,
+            |_| Ok(()),
+            |_| {
+                *autostart_calls.borrow_mut() += 1;
+                Ok(())
+            },
+        );
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(*autostart_calls.borrow(), 0);
+    }
+
+    #[test]
+    fn failed_side_effect_restores_previous_persisted_settings() {
+        let previous = settings(false);
+        let next = settings(true);
+        let saved = RefCell::new(Vec::new());
+
+        let result = persist_and_apply_settings(
+            &previous,
+            &next,
+            |value| {
+                saved.borrow_mut().push(value.clone());
+                Ok(())
+            },
+            |_| Err(()),
+        );
+
+        assert_eq!(result, Err(IpcError::ServiceUnavailable));
+        assert_eq!(&*saved.borrow(), &[next, previous]);
+    }
+
+    #[test]
+    fn persistence_compensation_failure_is_reported_as_rollback_failure() {
+        let previous = settings(false);
+        let next = settings(true);
+        let save_calls = RefCell::new(0);
+
+        let result = persist_and_apply_settings(
+            &previous,
+            &next,
+            |_| {
+                let mut calls = save_calls.borrow_mut();
+                *calls += 1;
+                if *calls == 1 {
+                    Ok(())
+                } else {
+                    Err(io::Error::other("synthetic rollback failure"))
+                }
+            },
+            |_| Err(()),
+        );
+
+        assert_eq!(result, Err(IpcError::SettingsRollbackFailed));
+        assert_eq!(*save_calls.borrow(), 2);
     }
 }

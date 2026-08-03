@@ -1,9 +1,11 @@
 <script>
-  /** @type {{ settings: import('../state/presentation').SettingsStoreState; theme?: import('../state/theme').ThemePreference; autostartAvailable?: boolean; pets?: readonly import('../api/gateway').PetSummaryModel[]; onChange?: (settings: import('../state/presentation').SettingsStoreState) => void; onThemeChange?: (theme: import('../state/theme').ThemePreference) => void }} */
+  /** @type {{ settings: import('../state/presentation').SettingsStoreState; theme?: import('../state/theme').ThemePreference; autostartAvailable?: boolean; hideShowHotkeyLabel?: string; hideShowHotkeyAvailable?: boolean; pets?: readonly import('../api/gateway').PetSummaryModel[]; onChange?: (settings: import('../state/presentation').SettingsStoreState) => void; onThemeChange?: (theme: import('../state/theme').ThemePreference) => void }} */
   let {
     settings,
     theme = 'system',
     autostartAvailable = true,
+    hideShowHotkeyLabel = 'Ctrl+Shift+H',
+    hideShowHotkeyAvailable = true,
     pets = [],
     onChange = () => {},
     onThemeChange = () => {},
@@ -28,6 +30,9 @@
   /** @param {string} value @returns {import('../state/theme').ThemePreference} */
   const asTheme = (value) =>
     value === 'light' ? 'light' : value === 'dark' ? 'dark' : 'system';
+
+  const hideShowHotkeyHelpId = 'hide-show-hotkey-help';
+  const hideShowHotkeyLabelId = 'hide-show-hotkey-label';
 </script>
 
 <section class="settings" aria-labelledby="settings-heading">
@@ -101,6 +106,24 @@
         onChange({ ...settings, startAtLogin: event.currentTarget.checked })}
     /><span>Start at login</span></label
   >
+  <!-- Read-only: the binding is a fixed native constant, so there is no form
+       control here and no `onChange` to fire. -->
+  <div class="field">
+    <span id={hideShowHotkeyLabelId}>Hide/show shortcut</span>
+    <kbd
+      class="shortcut"
+      aria-labelledby={hideShowHotkeyLabelId}
+      aria-describedby={hideShowHotkeyHelpId}>{hideShowHotkeyLabel}</kbd
+    >
+  </div>
+  <p id={hideShowHotkeyHelpId} class="field-help">
+    Hides and shows the pet.<br />Usage keeps updating while hidden.
+    {#if !hideShowHotkeyAvailable}
+      <span class="field-state"
+        >Another app is using this shortcut. Close it and restart CacheBite.</span
+      >
+    {/if}
+  </p>
 </section>
 
 <style>
@@ -148,5 +171,27 @@
     background: var(--color-surface);
     color: var(--color-text);
     font: inherit;
+  }
+  /* Reads as a key cap, not an editable field — the binding is fixed. */
+  .shortcut {
+    flex: none;
+    padding: 0.2rem 0.45rem;
+    border: 1px solid var(--color-border);
+    border-radius: 0.3rem;
+    background: var(--color-surface);
+    color: var(--color-text);
+    font: inherit;
+    white-space: nowrap;
+  }
+  .field-help {
+    margin: 0;
+    color: var(--color-text-muted);
+    font-size: 0.75rem;
+    line-height: 1.4;
+  }
+  .field-state {
+    display: block;
+    margin-top: 0.2rem;
+    color: var(--color-text);
   }
 </style>

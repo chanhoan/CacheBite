@@ -1,4 +1,4 @@
-import type { AppSettings } from '../api/gateway';
+import type { AppSettings, PlatformCapabilities } from '../api/gateway';
 import type { PanelProviderModel } from '../components/panelModels';
 import { derivePetUiState, type ProviderState } from './engine';
 
@@ -11,6 +11,16 @@ export type SettingsStoreState = Pick<
   | 'notificationsEnabled'
   | 'secondaryNotificationsEnabled'
 >;
+
+/**
+ * The hide/show shortcut as the running platform spells it. The binding itself
+ * is a fixed native constant (`CommandOrControl+Shift+H`); only its rendering
+ * differs. The OS comes from the native capability report, never from
+ * `navigator` — the renderer does not sniff its own environment.
+ */
+export function hideShowHotkeyLabel(os: PlatformCapabilities['os']): string {
+  return os === 'macos' ? 'Cmd+Shift+H' : 'Ctrl+Shift+H';
+}
 
 export function toSettingsStoreState(
   settings: AppSettings,

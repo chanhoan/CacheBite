@@ -92,7 +92,7 @@ const fixture = () => {
       return () => undefined;
     }),
     getSettings: vi.fn(async () => ({
-      schemaVersion: 3,
+      schemaVersion: 5,
       primaryProvider: 'claude' as const,
       selectedPetId: 'tabby',
       bubblesEnabled: true,
@@ -124,6 +124,7 @@ const fixture = () => {
       always_on_top: { status: 'available' as const },
       fullscreen_detection: { status: 'available' as const },
       autostart: { status: 'available' as const },
+      hide_show_hotkey: { status: 'available' as const },
     })),
     updateSettings: vi.fn(async (settings) => settings),
     getHistory: vi.fn(async () => ({
@@ -650,6 +651,32 @@ describe('application composition root', () => {
     expect(setPrimary.disabled).toBe(false);
   });
 
+  it('reports a claimed hide/show shortcut without touching saved settings', async () => {
+    window.history.replaceState({}, '', '/?window=panel');
+    const { gateway } = fixture();
+    vi.mocked(gateway.getPlatformCapabilities).mockResolvedValue({
+      os: 'linux',
+      always_on_top: { status: 'available' },
+      fullscreen_detection: { status: 'available' },
+      autostart: { status: 'available' },
+      hide_show_hotkey: {
+        status: 'unavailable',
+        reason: 'another application already owns this shortcut',
+      },
+    });
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Settings' }),
+    );
+
+    await screen.findByText(
+      'Another app is using this shortcut. Close it and restart CacheBite.',
+    );
+    // A conflict is a platform diagnostic, never a settings write.
+    expect(gateway.updateSettings).not.toHaveBeenCalled();
+  });
+
   it('reconciles persisted notification opt-in with granted permission', async () => {
     window.history.replaceState({}, '', '/?window=panel');
     const { gateway } = fixture();
@@ -993,6 +1020,7 @@ describe('application composition root', () => {
         status: 'unavailable',
         reason: 'autostart unavailable',
       },
+      hide_show_hotkey: { status: 'available' },
     });
     render(App, { props: { gateway, notificationAdapter: notifications } });
     expect(
