@@ -21,7 +21,6 @@ describe('settings and interaction stores', () => {
       startAtLogin: true,
       notificationsEnabled: true,
       secondaryNotificationsEnabled: true,
-      hideShowHotkey: null,
     });
     expect(get(store)).not.toBe(initial);
     store.replace(initial);

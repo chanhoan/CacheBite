@@ -40,7 +40,7 @@ export const rendererFixtureGateway: AppGateway = {
     codex: provider('codex'),
   }),
   getSettings: async () => ({
-    schemaVersion: 4,
+    schemaVersion: 5,
     primaryProvider: 'claude',
     selectedPetId: 'fixture-pet',
     bubblesEnabled: true,
@@ -48,7 +48,6 @@ export const rendererFixtureGateway: AppGateway = {
     notificationsEnabled: false,
     secondaryNotificationsEnabled: false,
     logicalPosition: { x: 0, y: 0 },
-    hideShowHotkey: 'CommandOrControl+Shift+H',
   }),
   listenProviderStates: async (next) => {
     if (new URLSearchParams(window.location.search).get('toast') === 'layout') {
@@ -95,6 +94,7 @@ export const rendererFixtureGateway: AppGateway = {
     always_on_top: { status: 'available' },
     fullscreen_detection: { status: 'available' },
     autostart: { status: 'available' },
+    hide_show_hotkey: { status: 'available' },
   }),
   updateSettings: async (settings) => settings,
   getHistory: async () => ({

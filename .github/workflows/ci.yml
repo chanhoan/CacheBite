@@ -36,9 +36,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:ci
       - name: Renderer E2E against fixture-only mode
-        run: |
-          pnpm dev --host 127.0.0.1 &
-          pnpm test:e2e:renderer
+        run: pnpm test:e2e:renderer
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
       - run: cargo test --manifest-path src-tauri/Cargo.toml --all-features

@@ -30,7 +30,6 @@ export interface AppSettings {
   readonly notificationsEnabled: boolean;
   readonly secondaryNotificationsEnabled: boolean;
   readonly logicalPosition: { readonly x: number; readonly y: number };
-  readonly hideShowHotkey: string | null;
 }
 export interface HistoryPointModel {
   readonly usedPercent: number;
@@ -62,6 +61,8 @@ export interface PlatformCapabilities {
   readonly always_on_top: CapabilityDiagnostic;
   readonly fullscreen_detection: CapabilityDiagnostic;
   readonly autostart: CapabilityDiagnostic;
+  /** Whether the fixed hide/show shortcut was claimed at startup. */
+  readonly hide_show_hotkey: CapabilityDiagnostic;
 }
 export type CollectorMode = 'fixture' | 'production';
 export interface CollectorModeDiagnostic {
@@ -109,7 +110,6 @@ type SettingsWire = {
   notification_enabled: boolean;
   secondary_notification_enabled: boolean;
   logical_position: { x: number; y: number };
-  hide_show_hotkey: string | null;
 };
 type HistoryWire = {
   claude: { samples: HistorySampleWire[] };
@@ -131,7 +131,6 @@ const fromSettings = (wire: SettingsWire): AppSettings => ({
   notificationsEnabled: wire.notification_enabled,
   secondaryNotificationsEnabled: wire.secondary_notification_enabled,
   logicalPosition: wire.logical_position,
-  hideShowHotkey: wire.hide_show_hotkey,
 });
 const toSettings = (settings: AppSettings): SettingsWire => ({
   schema_version: settings.schemaVersion,
@@ -142,7 +141,6 @@ const toSettings = (settings: AppSettings): SettingsWire => ({
   notification_enabled: settings.notificationsEnabled,
   secondary_notification_enabled: settings.secondaryNotificationsEnabled,
   logical_position: settings.logicalPosition,
-  hide_show_hotkey: settings.hideShowHotkey,
 });
 const historySamples = (samples: HistorySampleWire[]): HistorySampleModel[] =>
   samples.map((sample) => ({

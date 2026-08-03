@@ -85,15 +85,15 @@ Uninstall by deleting the AppImage.
   display.
 - **Double-click** the pet to open the usage panel.
 - The panel has a **Settings** view: primary provider (which provider drives
-  the ring), pet selection, bubbles, notifications, start at login, and a
-  hide/show shortcut.
+  the ring), pet selection, bubbles, notifications, and start at login.
 - The pet you choose is independent of the primary provider. Changing one must
   never change the other.
-- The hide/show shortcut works immediately on first run with no setup:
-  `Ctrl+Shift+H` on Windows/Linux and `Cmd+Shift+H` on macOS. Usage polling
-  keeps running in the background while hidden.
-- Use **Settings** only if you want to replace the preset or disable the
-  shortcut entirely.
+- The hide/show shortcut is fixed and claimed on every launch: `Ctrl+Shift+H` on
+  Windows/Linux, `Cmd+Shift+H` on macOS. There is nothing to set up and nothing
+  to configure — Settings shows the key for your platform, read-only, and says
+  so there if another app already owns the combination.
+- Usage polling keeps running in the background while the pet is hidden, so the
+  numbers are current when you bring it back.
 - The panel stays on top until you close it. Click the **×** at its top-right to
   hide it — CacheBite keeps running. Double-click the pet to bring the panel back
   to the front.
@@ -114,9 +114,11 @@ Uninstall by deleting the AppImage.
    out, offline, or rate limited.
 4. **Panel placement.** The panel should stay inside the work area of the
    display holding the pet, flipping rather than overflowing near an edge.
-5. **Hide/show shortcut conflicts.** If another app already owns the preset,
-   confirm CacheBite stays visible, the app does not claim the shortcut is
-   active, and Settings lets you replace or disable it.
+5. **Hide/show shortcut conflicts.** If another app already owns the
+   combination, confirm CacheBite stays visible, Settings says the shortcut is
+   taken and tells you to close the other app and restart, and that your other
+   settings are untouched. Closing the conflicting app and restarting CacheBite
+   should bring the shortcut back on its own.
 
 ## Reporting
 

@@ -57,11 +57,14 @@ pub fn run() {
             // chain), so a hotkey press dispatched to toggle_overlay_visibility
             // before this state exists would panic on app.state::<OverlayHideGate>().
             app.manage(OverlayHideGate::default());
+            // Registration is deliberately outside the settings load: the
+            // binding is a constant, so a settings file that fails to load must
+            // not also cost the user their shortcut.
+            app.manage(window::HideShowHotkeyCapability(register_default_hotkey(
+                app.handle(),
+            )));
             if let Ok(settings) = settings_repository.load() {
                 restore_window_positions(app, &settings);
-                if let Some(hotkey) = &settings.hide_show_hotkey {
-                    register_startup_hotkey(app.handle(), &settings_repository, hotkey);
-                }
             }
             let fixture_mode = std::env::var_os("CACHEBITE_E2E_FIXTURES").is_some();
             let collector_mode = refresh::ipc::CollectorModeDto::for_fixture_gate(fixture_mode);
@@ -226,17 +229,21 @@ fn toggle_overlay_visibility(app: &tauri::AppHandle) {
     let _ = overlay.show();
 }
 
-fn register_startup_hotkey(
-    app: &tauri::AppHandle,
-    repository: &store::SettingsRepository,
-    hotkey: &str,
-) {
+/// Claims the fixed hide/show shortcut, reporting the outcome instead of
+/// persisting it.
+///
+/// A conflict — another app, or a second CacheBite instance started while the
+/// login-launched one already holds the combination — used to clear the saved
+/// hotkey, turning one transient failure into a permanently disabled shortcut
+/// with no way back. Nothing is written now, so the next launch simply tries
+/// again.
+fn register_default_hotkey(app: &tauri::AppHandle) -> window::CapabilityDiagnostic {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
-    if app.global_shortcut().register(hotkey).is_err() {
-        eprintln!("failed to register saved hotkey {hotkey}; clearing it");
-        let _ = repository.clear_hotkey();
-    }
+    window::hide_show_hotkey_capability(
+        app.global_shortcut()
+            .register(window::DEFAULT_HIDE_SHOW_HOTKEY),
+    )
 }
 
 #[cfg(windows)]

@@ -13,8 +13,8 @@ use crate::{
         PetSummary, Settings, SettingsRepository,
     },
     window::{
-        command_allowed, panel_reveal, CapabilityDiagnostic, NativeCommand, PanelReveal,
-        PlatformCapabilities,
+        command_allowed, panel_reveal, CapabilityDiagnostic, HideShowHotkeyCapability,
+        NativeCommand, PanelReveal, PlatformCapabilities,
     },
 };
 use serde::Serialize;
@@ -116,30 +116,21 @@ pub enum IpcError {
     InvalidPanelSize,
     PersistenceUnavailable,
     PanelUnavailable,
-    HotkeyUnavailable,
     SettingsRollbackFailed,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum SettingsEffectError {
-    AutostartUnavailable,
-    HotkeyUnavailable,
-    RollbackFailed,
-}
-
-fn persist_and_apply_settings<SaveSettings, SetAutostart, RegisterHotkey, UnregisterHotkey>(
+/// Saves first, then applies the one OS-facing setting that can fail. A failed
+/// side effect rolls the persisted file back, so the saved state never claims
+/// something the OS refused.
+fn persist_and_apply_settings<SaveSettings, SetAutostart>(
     previous: &Settings,
     settings: &Settings,
     mut save_settings: SaveSettings,
-    set_autostart: SetAutostart,
-    register_hotkey: RegisterHotkey,
-    unregister_hotkey: UnregisterHotkey,
+    mut set_autostart: SetAutostart,
 ) -> Result<(), IpcError>
 where
     SaveSettings: FnMut(&Settings) -> io::Result<()>,
     SetAutostart: FnMut(bool) -> Result<(), ()>,
-    RegisterHotkey: FnMut(&str) -> Result<(), ()>,
-    UnregisterHotkey: FnMut(&str) -> Result<(), ()>,
 {
     save_settings(settings).map_err(|error| {
         if error.kind() == io::ErrorKind::InvalidData {
@@ -149,104 +140,17 @@ where
         }
     })?;
 
-    if let Err(error) = apply_settings_side_effects(
-        previous,
-        settings,
-        set_autostart,
-        register_hotkey,
-        unregister_hotkey,
-    ) {
+    if previous.start_at_login != settings.start_at_login
+        && set_autostart(settings.start_at_login).is_err()
+    {
         if save_settings(previous).is_err() {
             eprintln!("failed to restore persisted settings after settings update failure");
             return Err(IpcError::SettingsRollbackFailed);
         }
-        return Err(match error {
-            SettingsEffectError::AutostartUnavailable => IpcError::ServiceUnavailable,
-            SettingsEffectError::HotkeyUnavailable => IpcError::HotkeyUnavailable,
-            SettingsEffectError::RollbackFailed => IpcError::SettingsRollbackFailed,
-        });
+        return Err(IpcError::ServiceUnavailable);
     }
 
     Ok(())
-}
-
-fn apply_settings_side_effects<SetAutostart, RegisterHotkey, UnregisterHotkey>(
-    previous: &Settings,
-    settings: &Settings,
-    mut set_autostart: SetAutostart,
-    mut register_hotkey: RegisterHotkey,
-    mut unregister_hotkey: UnregisterHotkey,
-) -> Result<(), SettingsEffectError>
-where
-    SetAutostart: FnMut(bool) -> Result<(), ()>,
-    RegisterHotkey: FnMut(&str) -> Result<(), ()>,
-    UnregisterHotkey: FnMut(&str) -> Result<(), ()>,
-{
-    let autostart_changed = previous.start_at_login != settings.start_at_login;
-    if autostart_changed {
-        set_autostart(settings.start_at_login)
-            .map_err(|_| SettingsEffectError::AutostartUnavailable)?;
-    }
-
-    let hotkey_result = apply_hotkey_change(
-        previous.hide_show_hotkey.as_deref(),
-        settings.hide_show_hotkey.as_deref(),
-        &mut register_hotkey,
-        &mut unregister_hotkey,
-    );
-    if let Err(hotkey_error) = hotkey_result {
-        let autostart_rollback_failed =
-            autostart_changed && set_autostart(previous.start_at_login).is_err();
-        if autostart_rollback_failed {
-            eprintln!("failed to restore autostart after settings update failure");
-        }
-        return Err(
-            if hotkey_error == SettingsEffectError::RollbackFailed || autostart_rollback_failed {
-                SettingsEffectError::RollbackFailed
-            } else {
-                hotkey_error
-            },
-        );
-    }
-
-    Ok(())
-}
-
-fn apply_hotkey_change<RegisterHotkey, UnregisterHotkey>(
-    previous: Option<&str>,
-    next: Option<&str>,
-    register_hotkey: &mut RegisterHotkey,
-    unregister_hotkey: &mut UnregisterHotkey,
-) -> Result<(), SettingsEffectError>
-where
-    RegisterHotkey: FnMut(&str) -> Result<(), ()>,
-    UnregisterHotkey: FnMut(&str) -> Result<(), ()>,
-{
-    if previous == next {
-        return Ok(());
-    }
-
-    match (previous, next) {
-        (_, Some(new_hotkey)) => {
-            register_hotkey(new_hotkey).map_err(|_| SettingsEffectError::HotkeyUnavailable)?;
-            if let Some(old_hotkey) = previous {
-                if unregister_hotkey(old_hotkey).is_err() {
-                    if unregister_hotkey(new_hotkey).is_err() {
-                        eprintln!(
-                            "failed to unregister newly registered hotkey after replacement failure"
-                        );
-                        return Err(SettingsEffectError::RollbackFailed);
-                    }
-                    return Err(SettingsEffectError::HotkeyUnavailable);
-                }
-            }
-            Ok(())
-        }
-        (Some(old_hotkey), None) => {
-            unregister_hotkey(old_hotkey).map_err(|_| SettingsEffectError::HotkeyUnavailable)
-        }
-        (None, None) => Ok(()),
-    }
 }
 
 fn authorize(window: &tauri::WebviewWindow, command: NativeCommand) -> Result<(), IpcError> {
@@ -329,6 +233,7 @@ pub fn list_pet_packages(
 #[tauri::command]
 pub fn get_platform_capabilities(
     window: tauri::WebviewWindow,
+    hotkey: State<'_, HideShowHotkeyCapability>,
 ) -> Result<PlatformCapabilities, IpcError> {
     authorize(&window, NativeCommand::GetPlatformCapabilities)?;
     let fullscreen_detection = if cfg!(windows) {
@@ -345,6 +250,7 @@ pub fn get_platform_capabilities(
         },
         fullscreen_detection,
         autostart: CapabilityDiagnostic::Available,
+        hide_show_hotkey: hotkey.0.clone(),
     })
 }
 
@@ -376,10 +282,8 @@ pub fn update_settings(
         .load()
         .map_err(|_| IpcError::PersistenceUnavailable)?;
     use tauri_plugin_autostart::ManagerExt;
-    use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
     let autostart = app.autolaunch();
-    let shortcuts = app.global_shortcut();
     persist_and_apply_settings(
         &previous,
         &settings,
@@ -392,8 +296,6 @@ pub fn update_settings(
             };
             result.map_err(|_| ())
         },
-        |hotkey| shortcuts.register(hotkey).map_err(|_| ()),
-        |hotkey| shortcuts.unregister(hotkey).map_err(|_| ()),
     )?;
     // Persistence and OS integrations are committed at this point. Reporting
     // an event-delivery failure as a save failure would invite the caller to
@@ -623,148 +525,42 @@ mod settings_effect_tests {
     use std::cell::RefCell;
     use std::io;
 
-    use super::{
-        apply_settings_side_effects, persist_and_apply_settings, IpcError, Settings,
-        SettingsEffectError,
-    };
+    use super::{persist_and_apply_settings, IpcError, Settings};
 
-    fn settings(start_at_login: bool, hotkey: Option<&str>) -> Settings {
+    fn settings(start_at_login: bool) -> Settings {
         Settings {
             start_at_login,
-            hide_show_hotkey: hotkey.map(str::to_owned),
             ..Settings::default()
         }
     }
 
     #[test]
-    fn new_hotkey_registration_failure_leaves_old_hotkey_untouched() {
-        let previous = settings(false, Some("old"));
-        let next = settings(false, Some("new"));
-        let unregistered = RefCell::new(Vec::new());
-
-        let result = apply_settings_side_effects(
-            &previous,
-            &next,
-            |_| Ok(()),
-            |_| Err(()),
-            |hotkey| {
-                unregistered.borrow_mut().push(hotkey.to_owned());
-                Ok(())
-            },
-        );
-
-        assert_eq!(result, Err(SettingsEffectError::HotkeyUnavailable));
-        assert!(unregistered.borrow().is_empty());
-    }
-
-    #[test]
-    fn old_hotkey_unregister_failure_removes_new_hotkey_as_compensation() {
-        let previous = settings(false, Some("old"));
-        let next = settings(false, Some("new"));
-        let unregistered = RefCell::new(Vec::new());
-
-        let result = apply_settings_side_effects(
-            &previous,
-            &next,
-            |_| Ok(()),
-            |_| Ok(()),
-            |hotkey| {
-                unregistered.borrow_mut().push(hotkey.to_owned());
-                if hotkey == "old" {
-                    Err(())
-                } else {
-                    Ok(())
-                }
-            },
-        );
-
-        assert_eq!(result, Err(SettingsEffectError::HotkeyUnavailable));
-        assert_eq!(&*unregistered.borrow(), &["old", "new"]);
-    }
-
-    #[test]
-    fn disabling_hotkey_fails_when_old_hotkey_cannot_be_unregistered() {
-        let previous = settings(false, Some("old"));
-        let next = settings(false, None);
-        let registered = RefCell::new(Vec::new());
-
-        let result = apply_settings_side_effects(
-            &previous,
-            &next,
-            |_| Ok(()),
-            |hotkey| {
-                registered.borrow_mut().push(hotkey.to_owned());
-                Ok(())
-            },
-            |_| Err(()),
-        );
-
-        assert_eq!(result, Err(SettingsEffectError::HotkeyUnavailable));
-        assert!(registered.borrow().is_empty());
-    }
-
-    #[test]
-    fn later_hotkey_failure_restores_previous_autostart_value() {
-        let previous = settings(false, Some("old"));
-        let next = settings(true, Some("new"));
-        let autostart_values = RefCell::new(Vec::new());
-
-        let result = apply_settings_side_effects(
-            &previous,
-            &next,
-            |enabled| {
-                autostart_values.borrow_mut().push(enabled);
-                Ok(())
-            },
-            |_| Err(()),
-            |_| Ok(()),
-        );
-
-        assert_eq!(result, Err(SettingsEffectError::HotkeyUnavailable));
-        assert_eq!(&*autostart_values.borrow(), &[true, false]);
-    }
-
-    #[test]
-    fn hotkey_compensation_failure_is_reported_as_rollback_failure() {
-        let previous = settings(false, Some("old"));
-        let next = settings(false, Some("new"));
-
-        let result =
-            apply_settings_side_effects(&previous, &next, |_| Ok(()), |_| Ok(()), |_| Err(()));
-
-        assert_eq!(result, Err(SettingsEffectError::RollbackFailed));
-    }
-
-    #[test]
-    fn autostart_compensation_failure_is_reported_as_rollback_failure() {
-        let previous = settings(false, Some("old"));
-        let next = settings(true, Some("new"));
+    fn an_unchanged_autostart_value_is_never_reapplied() {
+        let previous = settings(true);
+        let next = Settings {
+            bubble_enabled: false,
+            ..settings(true)
+        };
         let autostart_calls = RefCell::new(0);
 
-        let result = apply_settings_side_effects(
+        let result = persist_and_apply_settings(
             &previous,
             &next,
-            |_| {
-                let mut calls = autostart_calls.borrow_mut();
-                *calls += 1;
-                if *calls == 1 {
-                    Ok(())
-                } else {
-                    Err(())
-                }
-            },
-            |_| Err(()),
             |_| Ok(()),
+            |_| {
+                *autostart_calls.borrow_mut() += 1;
+                Ok(())
+            },
         );
 
-        assert_eq!(result, Err(SettingsEffectError::RollbackFailed));
-        assert_eq!(*autostart_calls.borrow(), 2);
+        assert_eq!(result, Ok(()));
+        assert_eq!(*autostart_calls.borrow(), 0);
     }
 
     #[test]
     fn failed_side_effect_restores_previous_persisted_settings() {
-        let previous = settings(false, Some("old"));
-        let next = settings(false, Some("new"));
+        let previous = settings(false);
+        let next = settings(true);
         let saved = RefCell::new(Vec::new());
 
         let result = persist_and_apply_settings(
@@ -774,19 +570,17 @@ mod settings_effect_tests {
                 saved.borrow_mut().push(value.clone());
                 Ok(())
             },
-            |_| Ok(()),
             |_| Err(()),
-            |_| Ok(()),
         );
 
-        assert_eq!(result, Err(IpcError::HotkeyUnavailable));
+        assert_eq!(result, Err(IpcError::ServiceUnavailable));
         assert_eq!(&*saved.borrow(), &[next, previous]);
     }
 
     #[test]
     fn persistence_compensation_failure_is_reported_as_rollback_failure() {
-        let previous = settings(false, Some("old"));
-        let next = settings(false, Some("new"));
+        let previous = settings(false);
+        let next = settings(true);
         let save_calls = RefCell::new(0);
 
         let result = persist_and_apply_settings(
@@ -801,9 +595,7 @@ mod settings_effect_tests {
                     Err(io::Error::other("synthetic rollback failure"))
                 }
             },
-            |_| Ok(()),
             |_| Err(()),
-            |_| Ok(()),
         );
 
         assert_eq!(result, Err(IpcError::SettingsRollbackFailed));

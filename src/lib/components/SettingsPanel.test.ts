@@ -2,6 +2,15 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import SettingsPanel from './SettingsPanel.svelte';
 
+const settings = {
+  primaryProvider: 'claude',
+  selectedPetId: 'tabby',
+  bubblesEnabled: true,
+  startAtLogin: false,
+  notificationsEnabled: false,
+  secondaryNotificationsEnabled: false,
+} as const;
+
 describe('SettingsPanel', () => {
   afterEach(cleanup);
   it('emits immutable setting changes', async () => {
@@ -9,15 +18,7 @@ describe('SettingsPanel', () => {
     const onThemeChange = vi.fn();
     render(SettingsPanel, {
       props: {
-        settings: {
-          primaryProvider: 'claude',
-          selectedPetId: 'tabby',
-          bubblesEnabled: true,
-          startAtLogin: false,
-          notificationsEnabled: false,
-          secondaryNotificationsEnabled: false,
-          hideShowHotkey: null,
-        },
+        settings,
         theme: 'system',
         pets: [
           { id: 'corgi', displayName: 'Corgi' },
@@ -41,9 +42,6 @@ describe('SettingsPanel', () => {
     await fireEvent.click(
       screen.getByLabelText('Secondary provider notifications'),
     );
-    await fireEvent.change(screen.getByLabelText('Hide/show shortcut'), {
-      target: { value: 'CmdOrCtrl+Shift+H' },
-    });
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({ primaryProvider: 'codex' }),
     );
@@ -63,60 +61,54 @@ describe('SettingsPanel', () => {
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({ secondaryNotificationsEnabled: true }),
     );
-    expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({ hideShowHotkey: 'CmdOrCtrl+Shift+H' }),
-    );
     expect(onThemeChange).toHaveBeenCalledWith('dark');
   });
 
-  it('clears the hotkey when the input is emptied', async () => {
-    const onChange = vi.fn();
+  it('shows the fixed shortcut the way the running platform spells it', () => {
     render(SettingsPanel, {
       props: {
-        settings: {
-          primaryProvider: 'claude',
-          selectedPetId: 'tabby',
-          bubblesEnabled: true,
-          startAtLogin: false,
-          notificationsEnabled: false,
-          secondaryNotificationsEnabled: false,
-          hideShowHotkey: 'CommandOrControl+Shift+H',
-        },
+        settings,
         pets: [{ id: 'tabby', displayName: 'Tabby' }],
-        onChange,
+        hideShowHotkeyLabel: 'Cmd+Shift+H',
       },
     });
 
-    await fireEvent.change(screen.getByLabelText('Hide/show shortcut'), {
-      target: { value: '   ' },
-    });
-
-    expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({ hideShowHotkey: null }),
+    expect(screen.getByLabelText('Hide/show shortcut').textContent).toBe(
+      'Cmd+Shift+H',
     );
+    // The two sentences sit on their own lines, split by a <br>, so match each
+    // against the paragraph rather than expecting one exact text node.
+    expect(screen.queryByText(/Hides and shows the pet\./)).not.toBeNull();
+    expect(
+      screen.queryByText(/Usage keeps updating while hidden\./),
+    ).not.toBeNull();
+    // Guards the regression this screen exists to prevent: an editable field
+    // here is what let one failed registration persist as "no shortcut active".
+    expect(screen.queryByRole('textbox')).toBeNull();
   });
 
-  it('describes the preset mapping and inactive state', () => {
-    render(SettingsPanel, {
+  it('explains how to recover when another app owns the shortcut', () => {
+    const conflictMessage =
+      'Another app is using this shortcut. Close it and restart CacheBite.';
+    const { unmount } = render(SettingsPanel, {
       props: {
-        settings: {
-          primaryProvider: 'claude',
-          selectedPetId: 'tabby',
-          bubblesEnabled: true,
-          startAtLogin: false,
-          notificationsEnabled: false,
-          secondaryNotificationsEnabled: false,
-          hideShowHotkey: null,
-        },
+        settings,
         pets: [{ id: 'tabby', displayName: 'Tabby' }],
+        hideShowHotkeyAvailable: false,
       },
     });
 
-    expect(
-      screen.queryByText(
-        'Default: Windows/Linux Ctrl+Shift+H, macOS Cmd+Shift+H.',
-      ),
-    ).not.toBeNull();
-    expect(screen.queryByText('No shortcut active')).not.toBeNull();
+    expect(screen.queryByText(conflictMessage)).not.toBeNull();
+
+    unmount();
+    render(SettingsPanel, {
+      props: {
+        settings,
+        pets: [{ id: 'tabby', displayName: 'Tabby' }],
+        hideShowHotkeyAvailable: true,
+      },
+    });
+
+    expect(screen.queryByText(conflictMessage)).toBeNull();
   });
 });

@@ -30,6 +30,7 @@
   import {
     toProviderPresentation,
     toSettingsStoreState,
+    hideShowHotkeyLabel,
   } from './lib/state/presentation';
   import {
     beginPointer,
@@ -75,7 +76,7 @@
   let startupState = $state<'loading' | 'error' | 'ready'>('loading');
   let collectorMode = $state<CollectorModeDiagnostic | null>(null);
   let appSettings = $state<AppSettings>({
-    schemaVersion: 3,
+    schemaVersion: 5,
     primaryProvider: 'claude',
     // Must match the Rust default (`store/settings.rs`). 'idle' is an animation
     // key, not a package id, so a getSettings() failure used to guarantee a
@@ -86,7 +87,6 @@
     notificationsEnabled: false,
     secondaryNotificationsEnabled: false,
     logicalPosition: { x: 0, y: 0 },
-    hideShowHotkey: null,
   });
   let showSettings = $state(false);
   let themePreference = $state<ThemePreference>(
@@ -128,7 +128,6 @@
   const OVERLAY_WINDOW_PX = 240;
   let nowMs = $state(Date.now());
   let settingsSaveFailed = $state(false);
-  let hotkeySaveFailed = $state(false);
   let positionSaveFailed = $state(false);
   let notificationQueue: Promise<void> = Promise.resolve();
   let settingsQueue: Promise<void> = Promise.resolve();
@@ -559,11 +558,10 @@
         try {
           appSettings = await gateway.updateSettings(merged);
           settingsSaveFailed = false;
-          hotkeySaveFailed = false;
           // No overlay reload here: `changeSettings` only ever runs in the
           // panel window (`update_settings` is panel-authorized). The overlay
           // picks the change up through the `settings-updated` listener.
-        } catch (error) {
+        } catch {
           const reconciled = await serializeNotification((current) =>
             configureNotifications(
               current,
@@ -573,8 +571,7 @@
           ).catch(() => notificationState);
           notificationState = reconciled;
           notificationDiagnostic = reconciled.diagnostic;
-          hotkeySaveFailed = error === 'hotkey_unavailable';
-          settingsSaveFailed = !hotkeySaveFailed;
+          settingsSaveFailed = true;
         }
         settingsStore.replace(toSettingsStoreState(appSettings));
       });
@@ -652,6 +649,11 @@
           theme={themePreference}
           autostartAvailable={platformCapabilities?.autostart.status !==
             'unavailable'}
+          hideShowHotkeyLabel={hideShowHotkeyLabel(
+            platformCapabilities?.os ?? 'linux',
+          )}
+          hideShowHotkeyAvailable={platformCapabilities?.hide_show_hotkey
+            .status !== 'unavailable'}
           pets={petOptions}
           onChange={(settings) => void changeSettings(settings)}
           onThemeChange={changeTheme}
@@ -675,9 +677,7 @@
           void changeSettings({ ...$settingsStore, primaryProvider: provider })}
       />
     {/if}
-    {#if hotkeySaveFailed}<p role="status">
-        Global shortcut could not be registered — it may already be in use
-      </p>{:else if settingsSaveFailed}<p role="status">
+    {#if settingsSaveFailed}<p role="status">
         Settings could not be saved
       </p>{/if}
     {#if platformCapabilities?.autostart.status === 'unavailable'}

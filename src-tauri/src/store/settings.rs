@@ -9,8 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::{path_lock, quarantine, write_json_atomically};
 use crate::domain::{is_valid_pet_id, Provider};
 
-const SETTINGS_SCHEMA_VERSION: u32 = 4;
-pub const DEFAULT_HIDE_SHOW_HOTKEY: &str = "CommandOrControl+Shift+H";
+const SETTINGS_SCHEMA_VERSION: u32 = 5;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -36,7 +35,6 @@ pub struct Settings {
     pub notification_enabled: bool,
     pub secondary_notification_enabled: bool,
     pub logical_position: LogicalPosition,
-    pub hide_show_hotkey: Option<String>,
 }
 
 impl Default for Settings {
@@ -50,7 +48,6 @@ impl Default for Settings {
             notification_enabled: false,
             secondary_notification_enabled: false,
             logical_position: LogicalPosition::default(),
-            hide_show_hotkey: Some(DEFAULT_HIDE_SHOW_HOTKEY.into()),
         }
     }
 }
@@ -86,6 +83,26 @@ struct SettingsV2 {
     start_at_login: bool,
     notification_enabled: bool,
     logical_position: LogicalPosition,
+}
+
+/// Schema v4 carried a persisted hide/show accelerator. It is gone in v5: the
+/// binding is a fixed constant, and a stored value could only ever record a
+/// failure as a permanent opt-out. The field is still declared here because
+/// `deny_unknown_fields` would otherwise reject every v4 file and quarantine it,
+/// taking the position and notification settings down with it.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SettingsV4 {
+    schema_version: u32,
+    primary_provider: Provider,
+    selected_pet_id: String,
+    bubble_enabled: bool,
+    start_at_login: bool,
+    notification_enabled: bool,
+    secondary_notification_enabled: bool,
+    logical_position: LogicalPosition,
+    #[allow(dead_code)]
+    hide_show_hotkey: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -138,20 +155,6 @@ impl SettingsRepository {
         let current = self.load_locked()?;
         let updated = Settings {
             logical_position,
-            ..current
-        };
-        validate(&updated)?;
-        write_json_atomically(&self.path, &updated)
-    }
-
-    pub fn clear_hotkey(&self) -> io::Result<()> {
-        let _guard = self
-            .lock
-            .lock()
-            .map_err(|_| io::Error::other("settings lock poisoned"))?;
-        let current = self.load_locked()?;
-        let updated = Settings {
-            hide_show_hotkey: None,
             ..current
         };
         validate(&updated)?;
@@ -226,6 +229,23 @@ impl SettingsRepository {
                 return self.load_locked();
             }
         }
+        if let Ok(previous) = serde_json::from_slice::<SettingsV4>(&bytes) {
+            if previous.schema_version == 4 {
+                let migrated = Settings {
+                    primary_provider: previous.primary_provider,
+                    selected_pet_id: previous.selected_pet_id,
+                    bubble_enabled: previous.bubble_enabled,
+                    start_at_login: previous.start_at_login,
+                    notification_enabled: previous.notification_enabled,
+                    secondary_notification_enabled: previous.secondary_notification_enabled,
+                    logical_position: previous.logical_position,
+                    ..Settings::default()
+                };
+                validate(&migrated)?;
+                write_json_atomically(&self.path, &migrated)?;
+                return self.load_locked();
+            }
+        }
         if let Ok(previous) = serde_json::from_slice::<SettingsV3>(&bytes) {
             if previous.schema_version == 3 {
                 let migrated = Settings {
@@ -279,15 +299,6 @@ fn validate(settings: &Settings) -> io::Result<()> {
             io::ErrorKind::InvalidData,
             "position must be finite",
         ));
-    }
-    if let Some(hotkey) = &settings.hide_show_hotkey {
-        use std::str::FromStr;
-        if tauri_plugin_global_shortcut::Shortcut::from_str(hotkey).is_err() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "hotkey is invalid",
-            ));
-        }
     }
     Ok(())
 }

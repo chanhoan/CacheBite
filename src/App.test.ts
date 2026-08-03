@@ -92,7 +92,7 @@ const fixture = () => {
       return () => undefined;
     }),
     getSettings: vi.fn(async () => ({
-      schemaVersion: 4,
+      schemaVersion: 5,
       primaryProvider: 'claude' as const,
       selectedPetId: 'tabby',
       bubblesEnabled: true,
@@ -100,7 +100,6 @@ const fixture = () => {
       notificationsEnabled: false,
       secondaryNotificationsEnabled: false,
       logicalPosition: { x: 0, y: 0 },
-      hideShowHotkey: null,
     })),
     listenSettings: vi.fn(async (next) => {
       settingsListener = next;
@@ -125,6 +124,7 @@ const fixture = () => {
       always_on_top: { status: 'available' as const },
       fullscreen_detection: { status: 'available' as const },
       autostart: { status: 'available' as const },
+      hide_show_hotkey: { status: 'available' as const },
     })),
     updateSettings: vi.fn(async (settings) => settings),
     getHistory: vi.fn(async () => ({
@@ -651,27 +651,30 @@ describe('application composition root', () => {
     expect(setPrimary.disabled).toBe(false);
   });
 
-  it('shows a distinct message when the hotkey fails to register', async () => {
+  it('reports a claimed hide/show shortcut without touching saved settings', async () => {
     window.history.replaceState({}, '', '/?window=panel');
     const { gateway } = fixture();
-    // NOT `new Error(...)` — Err(IpcError::HotkeyUnavailable) rejects the real
-    // gateway's promise with the raw string, not a wrapped Error.
-    vi.mocked(gateway.updateSettings).mockRejectedValueOnce(
-      'hotkey_unavailable',
-    );
+    vi.mocked(gateway.getPlatformCapabilities).mockResolvedValue({
+      os: 'linux',
+      always_on_top: { status: 'available' },
+      fullscreen_detection: { status: 'available' },
+      autostart: { status: 'available' },
+      hide_show_hotkey: {
+        status: 'unavailable',
+        reason: 'another application already owns this shortcut',
+      },
+    });
     render(App, { props: { gateway, notificationAdapter: notifications } });
 
     await fireEvent.click(
       await screen.findByRole('button', { name: 'Settings' }),
     );
-    await fireEvent.change(screen.getByLabelText('Hide/show shortcut'), {
-      target: { value: 'CmdOrCtrl+Shift+H' },
-    });
 
     await screen.findByText(
-      'Global shortcut could not be registered — it may already be in use',
+      'Another app is using this shortcut. Close it and restart CacheBite.',
     );
-    expect(screen.queryByText('Settings could not be saved')).toBeNull();
+    // A conflict is a platform diagnostic, never a settings write.
+    expect(gateway.updateSettings).not.toHaveBeenCalled();
   });
 
   it('reconciles persisted notification opt-in with granted permission', async () => {
@@ -1017,6 +1020,7 @@ describe('application composition root', () => {
         status: 'unavailable',
         reason: 'autostart unavailable',
       },
+      hide_show_hotkey: { status: 'available' },
     });
     render(App, { props: { gateway, notificationAdapter: notifications } });
     expect(

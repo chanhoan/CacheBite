@@ -301,13 +301,35 @@ fn autostart_is_idempotent_and_reports_visible_degradation() {
         CapabilityDiagnostic::Unavailable { .. }
     ));
     assert_eq!(unsupported.enable_calls, 0);
-    let capabilities = PlatformCapabilities::linux_wayland(false, false);
+    let capabilities = PlatformCapabilities::linux_wayland(false, false, false);
     assert!(matches!(
         capabilities.always_on_top,
         CapabilityDiagnostic::Unavailable { .. }
     ));
     assert!(matches!(
         capabilities.fullscreen_detection,
+        CapabilityDiagnostic::Unavailable { .. }
+    ));
+    assert!(matches!(
+        capabilities.hide_show_hotkey,
+        CapabilityDiagnostic::Unavailable { .. }
+    ));
+    assert_eq!(
+        PlatformCapabilities::linux_wayland(true, true, true).hide_show_hotkey,
+        CapabilityDiagnostic::Available
+    );
+}
+
+/// The startup registration path reports through this mapping, so an inverted
+/// or dropped branch here would tell the panel a claimed shortcut is live.
+#[test]
+fn hide_show_hotkey_capability_reports_both_registration_outcomes() {
+    assert_eq!(
+        hide_show_hotkey_capability(Ok::<(), ()>(())),
+        CapabilityDiagnostic::Available
+    );
+    assert!(matches!(
+        hide_show_hotkey_capability(Err::<(), ()>(())),
         CapabilityDiagnostic::Unavailable { .. }
     ));
 }

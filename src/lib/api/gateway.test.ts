@@ -28,7 +28,7 @@ vi.mock('@tauri-apps/api/window', () => ({
 }));
 
 const settingsWire = {
-  schema_version: 4,
+  schema_version: 5,
   primary_provider: 'claude',
   selected_pet_id: 'pet',
   bubble_enabled: true,
@@ -36,7 +36,6 @@ const settingsWire = {
   notification_enabled: false,
   secondary_notification_enabled: false,
   logical_position: { x: 1, y: 2 },
-  hide_show_hotkey: null,
 } as const;
 
 describe('typed Tauri gateway', () => {
@@ -79,15 +78,17 @@ describe('typed Tauri gateway', () => {
     await tauriGateway.updateSettings({
       ...loaded,
       notificationsEnabled: true,
-      hideShowHotkey: 'CmdOrCtrl+Shift+H',
     });
     expect(calls[1]?.[1]).toMatchObject({
       settings: {
         notification_enabled: true,
         selected_pet_id: 'pet',
-        hide_show_hotkey: 'CmdOrCtrl+Shift+H',
       },
     });
+    // The shortcut is a fixed native constant, so it must not ride along on
+    // the settings wire in either direction.
+    expect(loaded).not.toHaveProperty('hideShowHotkey');
+    expect(calls[1]?.[1]).not.toHaveProperty('settings.hide_show_hotkey');
   });
 
   it('maps bounded history and delegates narrow commands', async () => {
@@ -116,6 +117,7 @@ describe('typed Tauri gateway', () => {
           always_on_top: { status: 'available' },
           fullscreen_detection: { status: 'available' },
           autostart: { status: 'available' },
+          hide_show_hotkey: { status: 'available' },
         };
       if (command === 'get_pet_package')
         return {
