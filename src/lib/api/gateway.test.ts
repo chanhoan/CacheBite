@@ -28,7 +28,7 @@ vi.mock('@tauri-apps/api/window', () => ({
 }));
 
 const settingsWire = {
-  schema_version: 3,
+  schema_version: 5,
   primary_provider: 'claude',
   selected_pet_id: 'pet',
   bubble_enabled: true,
@@ -80,8 +80,15 @@ describe('typed Tauri gateway', () => {
       notificationsEnabled: true,
     });
     expect(calls[1]?.[1]).toMatchObject({
-      settings: { notification_enabled: true, selected_pet_id: 'pet' },
+      settings: {
+        notification_enabled: true,
+        selected_pet_id: 'pet',
+      },
     });
+    // The shortcut is a fixed native constant, so it must not ride along on
+    // the settings wire in either direction.
+    expect(loaded).not.toHaveProperty('hideShowHotkey');
+    expect(calls[1]?.[1]).not.toHaveProperty('settings.hide_show_hotkey');
   });
 
   it('maps bounded history and delegates narrow commands', async () => {
@@ -110,6 +117,7 @@ describe('typed Tauri gateway', () => {
           always_on_top: { status: 'available' },
           fullscreen_detection: { status: 'available' },
           autostart: { status: 'available' },
+          hide_show_hotkey: { status: 'available' },
         };
       if (command === 'get_pet_package')
         return {
@@ -136,13 +144,13 @@ describe('typed Tauri gateway', () => {
       assetBaseUrl: 'asset://localhost/pets/pet/',
     });
     await tauriGateway.refreshProvider('codex');
-    await tauriGateway.showPanel();
+    await tauriGateway.togglePanel();
     await tauriGateway.hidePanel();
     await tauriGateway.quit();
     expect(invoked).toHaveBeenCalledWith('refresh_provider', {
       provider: 'codex',
     });
-    expect(invoked).toHaveBeenCalledWith('show_panel', {});
+    expect(invoked).toHaveBeenCalledWith('toggle_panel', {});
     expect(invoked).toHaveBeenCalledWith('hide_panel', {});
     expect(invoked).toHaveBeenCalledWith('quit', {});
   });

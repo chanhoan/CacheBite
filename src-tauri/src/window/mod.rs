@@ -40,7 +40,13 @@ pub struct PlatformCapabilities {
     pub always_on_top: CapabilityDiagnostic,
     pub fullscreen_detection: CapabilityDiagnostic,
     pub autostart: CapabilityDiagnostic,
+    pub hide_show_hotkey: CapabilityDiagnostic,
 }
+
+/// The startup registration result for [`DEFAULT_HIDE_SHOW_HOTKEY`], managed so
+/// `get_platform_capabilities` can report a conflict without the settings file
+/// ever recording one.
+pub struct HideShowHotkeyCapability(pub CapabilityDiagnostic);
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(tag = "command", content = "enabled", rename_all = "snake_case")]
@@ -65,7 +71,7 @@ pub enum NativeCommand {
     SavePosition,
     RefreshProvider,
     UpdateSettings,
-    ShowPanel,
+    TogglePanel,
     ResizePanel,
     HidePanel,
     Quit,
@@ -81,7 +87,7 @@ pub fn command_allowed(window_label: &str, command: NativeCommand) -> bool {
                 | NativeCommand::GetPetPackage
                 | NativeCommand::GetPlatformCapabilities
                 | NativeCommand::SavePosition
-                | NativeCommand::ShowPanel
+                | NativeCommand::TogglePanel
         ),
         "panel" => matches!(
             command,
@@ -94,7 +100,6 @@ pub fn command_allowed(window_label: &str, command: NativeCommand) -> bool {
                 | NativeCommand::GetPlatformCapabilities
                 | NativeCommand::RefreshProvider
                 | NativeCommand::UpdateSettings
-                | NativeCommand::ShowPanel
                 | NativeCommand::ResizePanel
                 | NativeCommand::HidePanel
                 | NativeCommand::Quit
@@ -103,29 +108,62 @@ pub fn command_allowed(window_label: &str, command: NativeCommand) -> bool {
     }
 }
 
-/// What `show_panel` must do for a panel in the given visibility state.
+/// What a pet double-click must do for a panel in the given state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PanelReveal {
-    /// Already on screen: raise and focus it, leaving the layout gate alone —
-    /// the height the renderer last reported still applies.
-    RaiseExisting,
-    /// Off screen: arm the layout gate so the reveal waits for the renderer to
-    /// measure its content height.
-    AwaitLayout,
+pub enum PanelToggle {
+    /// On screen, or on its way there: hide it. CacheBite keeps running and
+    /// keeps polling.
+    Hide,
+    /// Off screen: anchor it and arm the layout gate, so the reveal waits for
+    /// the renderer to measure its content height.
+    Show,
 }
 
-/// A visible panel is raised, never skipped.
+/// A reveal that is still waiting for the renderer counts as visible.
 ///
-/// The panel is not modal and does not follow focus, so it can sit behind
-/// another window while still reporting `is_visible() == true`. Returning early
-/// on that state is what made a double-click on the pet a no-op, with no way
-/// back other than the taskbar entry.
-pub fn panel_reveal(visible: bool) -> PanelReveal {
-    if visible {
-        PanelReveal::RaiseExisting
+/// `show()` is deferred until the renderer reports its height, or until the
+/// grace timer fires, so for a moment the panel reports `is_visible() == false`
+/// while already being on its way to the screen. Reading visibility alone would
+/// make a second double-click inside that window arm the reveal a second time
+/// instead of cancelling it — the panel would appear right after the gesture
+/// meant to dismiss it.
+pub fn panel_toggle(visible: bool, reveal_pending: bool) -> PanelToggle {
+    if visible || reveal_pending {
+        PanelToggle::Hide
     } else {
-        PanelReveal::AwaitLayout
+        PanelToggle::Show
     }
+}
+
+/// The one hide/show combination CacheBite claims. `CommandOrControl` is Tauri's
+/// cross-platform token: Cmd on macOS, Ctrl on Windows and Linux.
+///
+/// It is deliberately not user-configurable. A stored binding could record
+/// itself as disabled, which is how a single failed registration used to become
+/// permanent — the settings file kept a `null` no migration would ever undo.
+pub const DEFAULT_HIDE_SHOW_HOTKEY: &str = "CommandOrControl+Shift+H";
+
+/// Maps a global-shortcut registration outcome to the capability the settings
+/// panel reports.
+///
+/// Split from the Tauri call so both branches are covered by tests. The call
+/// site is left as a single expression with no conditional of its own, which is
+/// what keeps an inverted or missing mapping from being introduced there.
+pub fn hide_show_hotkey_capability<E>(registration: Result<(), E>) -> CapabilityDiagnostic {
+    if registration.is_err() {
+        eprintln!("failed to register the hide/show shortcut; another application may own it");
+    }
+    capability(
+        registration.is_ok(),
+        "another application already owns this shortcut",
+    )
+}
+
+/// Whether the overlay should be shown again when fullscreen ends. `false` when
+/// the user explicitly hid it via the hide/show hotkey — fullscreen exiting must
+/// not silently reverse that.
+pub fn should_restore_overlay_after_fullscreen(user_hidden: bool) -> bool {
+    !user_hidden
 }
 
 pub trait PlatformWindowAdapter {
@@ -135,7 +173,11 @@ pub trait PlatformWindowAdapter {
 }
 
 impl PlatformCapabilities {
-    pub fn linux_wayland(always_on_top: bool, fullscreen_detection: bool) -> Self {
+    pub fn linux_wayland(
+        always_on_top: bool,
+        fullscreen_detection: bool,
+        hide_show_hotkey: bool,
+    ) -> Self {
         Self {
             os: "linux",
             always_on_top: capability(always_on_top, "compositor does not permit always-on-top"),
@@ -144,6 +186,10 @@ impl PlatformCapabilities {
                 "compositor does not expose fullscreen detection",
             ),
             autostart: CapabilityDiagnostic::Available,
+            hide_show_hotkey: capability(
+                hide_show_hotkey,
+                "compositor does not permit a global shortcut",
+            ),
         }
     }
 }

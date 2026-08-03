@@ -136,11 +136,11 @@ fn legacy_settings_are_migrated_and_rewritten() {
 
     let loaded = SettingsRepository::new(dir.path()).load().expect("migrate");
 
-    assert_eq!(loaded.schema_version, 3);
+    assert_eq!(loaded.schema_version, 5);
     assert_eq!(loaded.selected_pet_id, "old-pet");
     assert!(!loaded.bubble_enabled);
     let rewritten = fs::read_to_string(dir.path().join("settings.json")).expect("rewritten");
-    assert!(rewritten.contains("\"schema_version\": 3"));
+    assert!(rewritten.contains("\"schema_version\": 5"));
 }
 
 #[test]
@@ -154,7 +154,7 @@ fn version_one_settings_migrate_with_notifications_off() {
     let loaded = SettingsRepository::new(dir.path())
         .load()
         .expect("migrate v1");
-    assert_eq!(loaded.schema_version, 3);
+    assert_eq!(loaded.schema_version, 5);
     assert!(!loaded.notification_enabled);
 }
 
@@ -169,9 +169,66 @@ fn version_two_settings_migrate_with_secondary_notifications_off() {
     let loaded = SettingsRepository::new(dir.path())
         .load()
         .expect("migrate v2");
-    assert_eq!(loaded.schema_version, 3);
+    assert_eq!(loaded.schema_version, 5);
     assert!(loaded.notification_enabled);
     assert!(!loaded.secondary_notification_enabled);
+}
+
+#[test]
+fn version_three_settings_migrate_to_the_current_schema() {
+    let dir = TempDir::new().expect("temp dir");
+    fs::write(
+        dir.path().join("settings.json"),
+        r#"{"schema_version":3,"primary_provider":"claude","selected_pet_id":"idle","bubble_enabled":true,"start_at_login":false,"notification_enabled":true,"secondary_notification_enabled":false,"logical_position":{"x":0.0,"y":0.0}}"#,
+    )
+    .expect("write v3 settings");
+    let loaded = SettingsRepository::new(dir.path())
+        .load()
+        .expect("migrate v3");
+    assert_eq!(loaded.schema_version, 5);
+}
+
+/// The shape a machine on the previous build actually carries: the hotkey was
+/// cleared to `null` by a failed startup registration. Dropping the field must
+/// not cost the user everything else in the file.
+#[test]
+fn version_four_settings_drop_the_persisted_hotkey() {
+    let dir = TempDir::new().expect("temp dir");
+    fs::write(
+        dir.path().join("settings.json"),
+        r#"{"schema_version":4,"primary_provider":"codex","selected_pet_id":"corgi","bubble_enabled":true,"start_at_login":true,"notification_enabled":true,"secondary_notification_enabled":true,"logical_position":{"x":-232.5,"y":220.5},"hide_show_hotkey":null}"#,
+    )
+    .expect("write v4 settings");
+
+    let loaded = SettingsRepository::new(dir.path()).load().expect("load v4");
+
+    assert_eq!(loaded.schema_version, 5);
+    assert_eq!(loaded.primary_provider, Provider::Codex);
+    assert_eq!(loaded.selected_pet_id, "corgi");
+    assert!(loaded.start_at_login);
+    assert!(loaded.secondary_notification_enabled);
+    assert_eq!(loaded.logical_position.x, -232.5);
+    assert_eq!(loaded.logical_position.y, 220.5);
+}
+
+/// A custom accelerator is dropped with the field, but `deny_unknown_fields`
+/// must not turn that into a quarantine that resets everything else.
+#[test]
+fn version_four_settings_with_a_custom_hotkey_migrate_without_quarantine() {
+    let dir = TempDir::new().expect("temp dir");
+    fs::write(
+        dir.path().join("settings.json"),
+        r#"{"schema_version":4,"primary_provider":"claude","selected_pet_id":"tabby","bubble_enabled":false,"start_at_login":false,"notification_enabled":true,"secondary_notification_enabled":false,"logical_position":{"x":12.0,"y":34.0},"hide_show_hotkey":"CmdOrCtrl+J"}"#,
+    )
+    .expect("write v4 settings");
+
+    let loaded = SettingsRepository::new(dir.path()).load().expect("load v4");
+
+    assert_eq!(loaded.schema_version, 5);
+    assert!(!loaded.bubble_enabled);
+    assert_eq!(loaded.logical_position.x, 12.0);
+    // A quarantine would leave the corrupt copy beside the rewritten file.
+    assert_eq!(fs::read_dir(dir.path()).expect("read dir").count(), 1);
 }
 
 #[test]
@@ -575,7 +632,7 @@ fn version_two_settings_carrying_the_retired_cat_pet_migrate_to_tabby() {
 
     // The V2 upgrade rewrites the file, then re-reads it so the current-schema
     // pass can repair the pet id the old file carried over.
-    assert_eq!(loaded.schema_version, 3);
+    assert_eq!(loaded.schema_version, 5);
     assert_eq!(loaded.selected_pet_id, "tabby");
     assert!(loaded.notification_enabled);
     assert_eq!(loaded.logical_position, LogicalPosition { x: 4.0, y: 8.0 });

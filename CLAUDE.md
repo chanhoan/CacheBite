@@ -42,7 +42,7 @@ Coverage gate is 80% on branches/functions/lines/statements (`vite.config.ts`); 
 **Renderer ↔ native boundary is the spine.** The renderer only ever talks to Rust through one typed gateway:
 
 - `src/lib/api/gateway.ts` — `AppGateway` interface + `tauriGateway` implementation. Every wire DTO (`ProviderBackendStateWire`, `AppSettings`, `HistoryModels`, `PlatformCapabilities`, `CollectorMode`, …) is defined here. This is the contract; changes must stay in sync with the Rust IPC commands.
-- Native commands registered in `src-tauri/src/lib.rs` `invoke_handler!`: `get_collector_mode`, `get_provider_states`, `get_settings`, `get_history`, `get_pet_package`, `get_platform_capabilities`, `save_position`, `refresh_provider`, `update_settings`, `show_panel`, `quit`. Implementations live in `src-tauri/src/refresh/ipc.rs`.
+- Native commands registered in `src-tauri/src/lib.rs` `invoke_handler!`: `get_collector_mode`, `get_provider_states`, `get_settings`, `get_history`, `get_pet_package`, `get_platform_capabilities`, `save_position`, `refresh_provider`, `update_settings`, `toggle_panel`, `quit`. Implementations live in `src-tauri/src/refresh/ipc.rs`.
 - `src/lib/api/fixtureGateway.ts` is the deterministic renderer-side fixture used in tests/E2E — mirror the real gateway shape when adding methods.
 
 **Native layers (`src-tauri/src/`):**
@@ -60,7 +60,7 @@ Coverage gate is 80% on branches/functions/lines/statements (`vite.config.ts`); 
 - `stores/` — Svelte stores wiring gateway → components (`providers.ts`, `settings.ts`, `interaction.ts`).
 - `components/` — Svelte views (`PetOverlay`, `PetAnimation`, `UsagePanel`, `SplitUsageRing`, `HistoryGraph`, `SettingsPanel`, …).
 
-**Two windows** (`src-tauri/tauri.conf.json`): `overlay` (transparent, always-on-top, frameless pet) and `panel` (usage UI, hidden until `show_panel`). Both load `index.html` with a `?window=` query param that selects which surface mounts.
+**Two windows** (`src-tauri/tauri.conf.json`): `overlay` (transparent, always-on-top, frameless pet) and `panel` (usage UI, hidden until `toggle_panel`). Both load `index.html` with a `?window=` query param that selects which surface mounts.
 
 ## Invariants — do not break
 
@@ -70,7 +70,7 @@ Coverage gate is 80% on branches/functions/lines/statements (`vite.config.ts`); 
 - **Pet manifest contract:** packages require a valid `idle` state; asset protocol scope is locked to `$APPDATA/pets/*/frames/*.png` (`tauri.conf.json`). Directory names must satisfy `is_valid_pet_id` or the installer skips them. `docs/UI-plan/` art is _source only_ — never bundled into a release directly; it flows through `scripts/build-pet-packages.py`.
 - **Pet selection is independent of the primary provider.** The primary provider chooses which usage data drives the ring; the pet is its own setting. Neither may silently rewrite the other.
 - **Codex `initialize` RPC requires `clientInfo{name,version}`** or the provider drops to error (stderr is nulled, so no debug logs surface).
-- **Panel visibility policy:** the panel is always-on-top and is dismissed only by its explicit `✕` control — never by focus loss or an outside click. `show_panel` must raise and focus an already-visible panel rather than returning early, or a double-click on the pet becomes a no-op. The footer `Quit` is `app.exit(0)`, not a panel hide.
+- **Panel visibility policy:** the panel is always-on-top and is dismissed only by explicit gestures — its `✕` control or a pet double-click — never by focus loss or an outside click. `toggle_panel` decides from the panel's real visibility plus any pending reveal, so the renderer never keeps its own copy of the panel state. The footer `Quit` is `app.exit(0)`, not a panel hide.
 
 ## Authoritative docs
 

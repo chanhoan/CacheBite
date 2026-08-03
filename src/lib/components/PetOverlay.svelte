@@ -3,20 +3,20 @@
   import SplitUsageRing from './SplitUsageRing.svelte';
   import SystemBadge from './SystemBadge.svelte';
 
-  /** @type {{ model: import('./models').PetOverlayViewModel; onPointerDown?: (event: PointerEvent) => void; onPointerMove?: (event: PointerEvent) => void; onPointerUp?: (event: PointerEvent) => void; onPointerCancel?: (event: PointerEvent) => void; onOpen?: () => void }} */
+  /** @type {{ model: import('./models').PetOverlayViewModel; onPointerDown?: (event: PointerEvent) => void; onPointerMove?: (event: PointerEvent) => void; onPointerUp?: (event: PointerEvent) => void; onPointerCancel?: (event: PointerEvent) => void; onToggle?: () => void }} */
   let {
     model,
     onPointerDown = () => {},
     onPointerMove = () => {},
     onPointerUp = () => {},
     onPointerCancel = () => {},
-    onOpen = () => {},
+    onToggle = () => {},
   } = $props();
   /** @param {KeyboardEvent} event */
   const keydown = (event) => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
     event.preventDefault();
-    onOpen();
+    onToggle();
   };
 </script>
 
@@ -45,13 +45,13 @@
     data-testid="overlay-pointer-surface"
     role="button"
     tabindex="0"
-    aria-label="Move pet; double-click or press Enter for usage"
+    aria-label="Move pet; double-click or press Enter to show or hide usage"
     style="clip-path: circle(50% at 50% 50%)"
     onpointerdown={onPointerDown}
     onpointermove={onPointerMove}
     onpointerup={onPointerUp}
     onpointercancel={onPointerCancel}
-    ondblclick={() => onOpen()}
+    ondblclick={() => onToggle()}
     onkeydown={keydown}
   ></div>
 </section>

@@ -83,14 +83,20 @@ Uninstall by deleting the AppImage.
 
 - A small pet appears on screen. Drag it anywhere — the position is saved per
   display.
-- **Double-click** the pet to open the usage panel.
+- **Double-click** the pet to open the usage panel — and double-click it again
+  to hide the panel. The same gesture does both.
 - The panel has a **Settings** view: primary provider (which provider drives
-  the ring), pet selection, bubbles, notifications, start at login.
+  the ring), pet selection, bubbles, notifications, and start at login.
 - The pet you choose is independent of the primary provider. Changing one must
   never change the other.
-- The panel stays on top until you close it. Click the **×** at its top-right to
-  hide it — CacheBite keeps running. Double-click the pet to bring the panel back
-  to the front.
+- The hide/show shortcut is fixed and claimed on every launch: `Ctrl+Shift+H` on
+  Windows/Linux, `Cmd+Shift+H` on macOS. There is nothing to set up and nothing
+  to configure — Settings shows the key for your platform, read-only, and says
+  so there if another app already owns the combination.
+- Usage polling keeps running in the background while the pet is hidden, so the
+  numbers are current when you bring it back.
+- The panel stays on top until you close it. Double-click the pet, or click the
+  **×** at its top-right — either one hides it and CacheBite keeps running.
 - **Quit** in the panel footer exits CacheBite. That is the supported way to stop
   it; you should never need Task Manager.
 
@@ -108,6 +114,14 @@ Uninstall by deleting the AppImage.
    out, offline, or rate limited.
 4. **Panel placement.** The panel should stay inside the work area of the
    display holding the pet, flipping rather than overflowing near an edge.
+5. **Hide/show shortcut conflicts.** If another app already owns the
+   combination, confirm CacheBite stays visible, Settings says the shortcut is
+   taken and tells you to close the other app and restart, and that your other
+   settings are untouched. Closing the conflicting app and restarting CacheBite
+   should bring the shortcut back on its own.
+6. **Panel toggle.** Double-click the pet repeatedly, including two clicks in
+   quick succession. The panel must alternate open and closed every time and
+   never end up in a state where the gesture stops responding.
 
 ## Reporting
 

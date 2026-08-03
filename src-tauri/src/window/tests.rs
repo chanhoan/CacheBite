@@ -301,7 +301,7 @@ fn autostart_is_idempotent_and_reports_visible_degradation() {
         CapabilityDiagnostic::Unavailable { .. }
     ));
     assert_eq!(unsupported.enable_calls, 0);
-    let capabilities = PlatformCapabilities::linux_wayland(false, false);
+    let capabilities = PlatformCapabilities::linux_wayland(false, false, false);
     assert!(matches!(
         capabilities.always_on_top,
         CapabilityDiagnostic::Unavailable { .. }
@@ -310,12 +310,34 @@ fn autostart_is_idempotent_and_reports_visible_degradation() {
         capabilities.fullscreen_detection,
         CapabilityDiagnostic::Unavailable { .. }
     ));
+    assert!(matches!(
+        capabilities.hide_show_hotkey,
+        CapabilityDiagnostic::Unavailable { .. }
+    ));
+    assert_eq!(
+        PlatformCapabilities::linux_wayland(true, true, true).hide_show_hotkey,
+        CapabilityDiagnostic::Available
+    );
+}
+
+/// The startup registration path reports through this mapping, so an inverted
+/// or dropped branch here would tell the panel a claimed shortcut is live.
+#[test]
+fn hide_show_hotkey_capability_reports_both_registration_outcomes() {
+    assert_eq!(
+        hide_show_hotkey_capability(Ok::<(), ()>(())),
+        CapabilityDiagnostic::Available
+    );
+    assert!(matches!(
+        hide_show_hotkey_capability(Err::<(), ()>(())),
+        CapabilityDiagnostic::Unavailable { .. }
+    ));
 }
 
 #[test]
 fn native_commands_are_authorized_by_window_label() {
     assert!(command_allowed("overlay", NativeCommand::GetCollectorMode));
-    assert!(command_allowed("overlay", NativeCommand::ShowPanel));
+    assert!(command_allowed("overlay", NativeCommand::TogglePanel));
     assert!(!command_allowed("overlay", NativeCommand::ResizePanel));
     assert!(command_allowed("overlay", NativeCommand::GetProviderStates));
     assert!(command_allowed("overlay", NativeCommand::GetSettings));
@@ -339,13 +361,25 @@ fn native_commands_are_authorized_by_window_label() {
     assert!(command_allowed("panel", NativeCommand::HidePanel));
     assert!(command_allowed("panel", NativeCommand::ResizePanel));
     assert!(!command_allowed("panel", NativeCommand::SavePosition));
-    assert!(!command_allowed("unknown", NativeCommand::ShowPanel));
+    // The pet gesture is the overlay's; the panel dismisses itself with `hide_panel`.
+    assert!(!command_allowed("panel", NativeCommand::TogglePanel));
+    assert!(!command_allowed("unknown", NativeCommand::TogglePanel));
 }
 
 #[test]
-fn a_visible_panel_is_raised_rather_than_left_behind_another_window() {
-    assert_eq!(panel_reveal(true), PanelReveal::RaiseExisting);
-    assert_eq!(panel_reveal(false), PanelReveal::AwaitLayout);
+fn a_visible_or_pending_panel_is_hidden_and_a_hidden_one_is_shown() {
+    assert_eq!(panel_toggle(false, false), PanelToggle::Show);
+    assert_eq!(panel_toggle(true, false), PanelToggle::Hide);
+    // Rapid double-clicks: the second one cancels the reveal the first armed
+    // rather than arming a second one on a panel that is already on its way.
+    assert_eq!(panel_toggle(false, true), PanelToggle::Hide);
+    assert_eq!(panel_toggle(true, true), PanelToggle::Hide);
+}
+
+#[test]
+fn fullscreen_exit_does_not_restore_a_hotkey_hidden_overlay() {
+    assert!(should_restore_overlay_after_fullscreen(false));
+    assert!(!should_restore_overlay_after_fullscreen(true));
 }
 
 #[test]

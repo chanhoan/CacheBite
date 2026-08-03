@@ -92,7 +92,7 @@ const fixture = () => {
       return () => undefined;
     }),
     getSettings: vi.fn(async () => ({
-      schemaVersion: 3,
+      schemaVersion: 5,
       primaryProvider: 'claude' as const,
       selectedPetId: 'tabby',
       bubblesEnabled: true,
@@ -124,6 +124,7 @@ const fixture = () => {
       always_on_top: { status: 'available' as const },
       fullscreen_detection: { status: 'available' as const },
       autostart: { status: 'available' as const },
+      hide_show_hotkey: { status: 'available' as const },
     })),
     updateSettings: vi.fn(async (settings) => settings),
     getHistory: vi.fn(async () => ({
@@ -139,7 +140,7 @@ const fixture = () => {
     refreshProvider: vi.fn(async () => undefined),
     startDragging: vi.fn(async () => undefined),
     listenPositionMoved: vi.fn(async () => () => undefined),
-    showPanel: vi.fn(async () => undefined),
+    togglePanel: vi.fn(async () => 'shown' as const),
     resizePanel: vi.fn(async () => undefined),
     hidePanel: vi.fn(async () => undefined),
     quit: vi.fn(async () => undefined),
@@ -166,7 +167,7 @@ describe('application composition root', () => {
     window.history.replaceState({}, '', '/');
   });
 
-  it('hydrates overlay and opens the panel only on a circular-surface double-click', async () => {
+  it('hydrates overlay and toggles the panel only on a circular-surface double-click', async () => {
     const { gateway, emit } = fixture();
     render(App, { props: { gateway, notificationAdapter: notifications } });
     expect(await screen.findByLabelText('CacheBite pet status')).toBeTruthy();
@@ -181,9 +182,11 @@ describe('application composition root', () => {
     const overlay = screen.getByTestId('overlay-pointer-surface');
     await fireEvent.pointerDown(overlay, { clientX: 10, clientY: 10 });
     await fireEvent.pointerUp(overlay, { clientX: 12, clientY: 10 });
-    expect(gateway.showPanel).not.toHaveBeenCalled();
+    expect(gateway.togglePanel).not.toHaveBeenCalled();
     await fireEvent.dblClick(overlay);
-    expect(gateway.showPanel).toHaveBeenCalledOnce();
+    await fireEvent.dblClick(overlay);
+    await fireEvent.dblClick(overlay);
+    expect(gateway.togglePanel).toHaveBeenCalledTimes(3);
     expect(
       screen.getByLabelText('CacheBite').getAttribute('data-platform'),
     ).toBe('linux');
@@ -650,6 +653,32 @@ describe('application composition root', () => {
     expect(setPrimary.disabled).toBe(false);
   });
 
+  it('reports a claimed hide/show shortcut without touching saved settings', async () => {
+    window.history.replaceState({}, '', '/?window=panel');
+    const { gateway } = fixture();
+    vi.mocked(gateway.getPlatformCapabilities).mockResolvedValue({
+      os: 'linux',
+      always_on_top: { status: 'available' },
+      fullscreen_detection: { status: 'available' },
+      autostart: { status: 'available' },
+      hide_show_hotkey: {
+        status: 'unavailable',
+        reason: 'another application already owns this shortcut',
+      },
+    });
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Settings' }),
+    );
+
+    await screen.findByText(
+      'Another app is using this shortcut. Close it and restart CacheBite.',
+    );
+    // A conflict is a platform diagnostic, never a settings write.
+    expect(gateway.updateSettings).not.toHaveBeenCalled();
+  });
+
   it('reconciles persisted notification opt-in with granted permission', async () => {
     window.history.replaceState({}, '', '/?window=panel');
     const { gateway } = fixture();
@@ -903,7 +932,7 @@ describe('application composition root', () => {
     expect(
       screen.queryByRole('button', { name: '5-hour usage is exhausted' }),
     ).toBeNull();
-    expect(gateway.showPanel).not.toHaveBeenCalled();
+    expect(gateway.togglePanel).not.toHaveBeenCalled();
   });
 
   it('ages a fresh snapshot into stale without any new provider event', async () => {
@@ -966,6 +995,7 @@ describe('application composition root', () => {
       await screen.findByRole('button', { name: 'Close usage panel' }),
     );
     expect(gateway.hidePanel).toHaveBeenCalledOnce();
+    expect(gateway.togglePanel).not.toHaveBeenCalled();
     expect(gateway.quit).not.toHaveBeenCalled();
   });
 
@@ -977,6 +1007,7 @@ describe('application composition root', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Quit' }));
     expect(gateway.quit).toHaveBeenCalledOnce();
     expect(gateway.hidePanel).not.toHaveBeenCalled();
+    expect(gateway.togglePanel).not.toHaveBeenCalled();
   });
 
   it('surfaces unavailable platform capabilities and disables autostart', async () => {
@@ -993,6 +1024,7 @@ describe('application composition root', () => {
         status: 'unavailable',
         reason: 'autostart unavailable',
       },
+      hide_show_hotkey: { status: 'available' },
     });
     render(App, { props: { gateway, notificationAdapter: notifications } });
     expect(

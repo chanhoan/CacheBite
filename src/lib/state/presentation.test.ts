@@ -3,10 +3,14 @@ import { describe, expect, it } from 'vitest';
 import type { AppSettings } from '../api/gateway';
 import type { ProviderUiSnapshot } from '../contracts/domain';
 import { applyProviderUpdate, createProviderState } from './engine';
-import { toProviderPresentation, toSettingsStoreState } from './presentation';
+import {
+  hideShowHotkeyLabel,
+  toProviderPresentation,
+  toSettingsStoreState,
+} from './presentation';
 
 const settings: AppSettings = {
-  schemaVersion: 3,
+  schemaVersion: 5,
   primaryProvider: 'claude',
   selectedPetId: 'tabby',
   bubblesEnabled: true,
@@ -39,6 +43,12 @@ describe('renderer presentation projections', () => {
       notificationsEnabled: true,
       secondaryNotificationsEnabled: false,
     });
+  });
+
+  it('spells the fixed hide/show shortcut the way each platform does', () => {
+    expect(hideShowHotkeyLabel('macos')).toBe('Cmd+Shift+H');
+    expect(hideShowHotkeyLabel('windows')).toBe('Ctrl+Shift+H');
+    expect(hideShowHotkeyLabel('linux')).toBe('Ctrl+Shift+H');
   });
 
   it('derives panel and overlay shared fields from one provider state', () => {

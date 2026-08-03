@@ -30,6 +30,7 @@
   import {
     toProviderPresentation,
     toSettingsStoreState,
+    hideShowHotkeyLabel,
   } from './lib/state/presentation';
   import {
     beginPointer,
@@ -75,7 +76,7 @@
   let startupState = $state<'loading' | 'error' | 'ready'>('loading');
   let collectorMode = $state<CollectorModeDiagnostic | null>(null);
   let appSettings = $state<AppSettings>({
-    schemaVersion: 3,
+    schemaVersion: 5,
     primaryProvider: 'claude',
     // Must match the Rust default (`store/settings.rs`). 'idle' is an animation
     // key, not a package id, so a getSettings() failure used to guarantee a
@@ -648,6 +649,11 @@
           theme={themePreference}
           autostartAvailable={platformCapabilities?.autostart.status !==
             'unavailable'}
+          hideShowHotkeyLabel={hideShowHotkeyLabel(
+            platformCapabilities?.os ?? 'linux',
+          )}
+          hideShowHotkeyAvailable={platformCapabilities?.hide_show_hotkey
+            .status !== 'unavailable'}
           pets={petOptions}
           onChange={(settings) => void changeSettings(settings)}
           onThemeChange={changeTheme}
@@ -699,7 +705,7 @@
           onPointerMove={pointerMove}
           onPointerUp={pointerUp}
           onPointerCancel={pointerCancel}
-          onOpen={() => void gateway.showPanel()}
+          onToggle={() => void gateway.togglePanel()}
         />
       {:else if petPackageError}
         <p role="status">Pet package unavailable</p>

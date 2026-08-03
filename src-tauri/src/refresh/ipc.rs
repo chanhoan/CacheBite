@@ -1,3 +1,4 @@
+use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,8 +13,8 @@ use crate::{
         PetSummary, Settings, SettingsRepository,
     },
     window::{
-        command_allowed, panel_reveal, CapabilityDiagnostic, NativeCommand, PanelReveal,
-        PlatformCapabilities,
+        command_allowed, panel_toggle, CapabilityDiagnostic, HideShowHotkeyCapability,
+        NativeCommand, PanelToggle, PlatformCapabilities,
     },
 };
 use serde::Serialize;
@@ -26,17 +27,28 @@ pub const PROVIDER_STATE_EVENT: &str = "provider-state";
 const PANEL_ANCHOR_GAP_LOGICAL: f64 = 12.0;
 /// Fixed panel width in logical pixels. Only the height tracks content.
 const PANEL_WIDTH_LOGICAL: f64 = 312.0;
-/// How long `show_panel` waits for the renderer to report its measured height
+/// How long `toggle_panel` waits for the renderer to report its measured height
 /// before revealing the panel anyway. A single misplaced frame beats a panel
 /// that never appears because the renderer failed to measure.
 const PANEL_LAYOUT_GRACE: Duration = Duration::from_millis(150);
 
-/// Tracks a `show_panel` request that is still waiting for the renderer to
+/// Tracks a `toggle_panel` request that is still waiting for the renderer to
 /// report its content height, so the panel is revealed only once it has been
 /// placed at its final size.
 #[derive(Default)]
 pub struct PanelLayoutGate {
     awaiting_layout: AtomicBool,
+}
+
+impl PanelLayoutGate {
+    /// Cancels a pending reveal.
+    ///
+    /// Exposed because `lib.rs` hides the panel too — the hide/show hotkey and
+    /// the fullscreen monitor — and an armed grace timer would put the panel
+    /// back on screen milliseconds after it was hidden.
+    pub fn disarm(&self) {
+        self.awaiting_layout.store(false, Ordering::SeqCst);
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -77,6 +89,27 @@ pub enum CollectorMode {
     Production,
 }
 
+/// The state the panel will be in once this toggle settles — and the state the
+/// next toggle will read.
+///
+/// Returned so the native boundary can be exercised end to end without a
+/// visibility query command. The renderer must not cache it: the `✕`, the
+/// hide/show hotkey and the fullscreen monitor all change panel visibility
+/// without going through the renderer at all.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PanelVisibility {
+    Shown,
+    Hidden,
+}
+
+#[cfg(feature = "webdriver")]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct WindowStateDto {
+    pub label: String,
+    pub is_visible: bool,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct CollectorModeDto {
     pub claude: CollectorMode,
@@ -106,7 +139,7 @@ pub fn get_collector_mode(
     Ok(*mode)
 }
 
-#[derive(Clone, Copy, Debug, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum IpcError {
     Forbidden,
@@ -115,6 +148,41 @@ pub enum IpcError {
     InvalidPanelSize,
     PersistenceUnavailable,
     PanelUnavailable,
+    SettingsRollbackFailed,
+}
+
+/// Saves first, then applies the one OS-facing setting that can fail. A failed
+/// side effect rolls the persisted file back, so the saved state never claims
+/// something the OS refused.
+fn persist_and_apply_settings<SaveSettings, SetAutostart>(
+    previous: &Settings,
+    settings: &Settings,
+    mut save_settings: SaveSettings,
+    mut set_autostart: SetAutostart,
+) -> Result<(), IpcError>
+where
+    SaveSettings: FnMut(&Settings) -> io::Result<()>,
+    SetAutostart: FnMut(bool) -> Result<(), ()>,
+{
+    save_settings(settings).map_err(|error| {
+        if error.kind() == io::ErrorKind::InvalidData {
+            IpcError::InvalidSettings
+        } else {
+            IpcError::PersistenceUnavailable
+        }
+    })?;
+
+    if previous.start_at_login != settings.start_at_login
+        && set_autostart(settings.start_at_login).is_err()
+    {
+        if save_settings(previous).is_err() {
+            eprintln!("failed to restore persisted settings after settings update failure");
+            return Err(IpcError::SettingsRollbackFailed);
+        }
+        return Err(IpcError::ServiceUnavailable);
+    }
+
+    Ok(())
 }
 
 fn authorize(window: &tauri::WebviewWindow, command: NativeCommand) -> Result<(), IpcError> {
@@ -134,6 +202,20 @@ pub fn get_provider_states(
         claude: states.claude.into(),
         codex: states.codex.into(),
     })
+}
+
+#[cfg(feature = "webdriver")]
+#[tauri::command]
+pub fn get_window_states(app: AppHandle) -> Result<Vec<WindowStateDto>, IpcError> {
+    Ok(["overlay", "panel"]
+        .into_iter()
+        .filter_map(|label| {
+            app.get_webview_window(label).map(|window| WindowStateDto {
+                label: label.to_string(),
+                is_visible: window.is_visible().unwrap_or(false),
+            })
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -197,6 +279,7 @@ pub fn list_pet_packages(
 #[tauri::command]
 pub fn get_platform_capabilities(
     window: tauri::WebviewWindow,
+    hotkey: State<'_, HideShowHotkeyCapability>,
 ) -> Result<PlatformCapabilities, IpcError> {
     authorize(&window, NativeCommand::GetPlatformCapabilities)?;
     let fullscreen_detection = if cfg!(windows) {
@@ -213,6 +296,7 @@ pub fn get_platform_capabilities(
         },
         fullscreen_detection,
         autostart: CapabilityDiagnostic::Available,
+        hide_show_hotkey: hotkey.0.clone(),
     })
 }
 
@@ -243,29 +327,28 @@ pub fn update_settings(
     let previous = repository
         .load()
         .map_err(|_| IpcError::PersistenceUnavailable)?;
-    repository.save(&settings).map_err(|error| {
-        if error.kind() == std::io::ErrorKind::InvalidData {
-            IpcError::InvalidSettings
-        } else {
-            IpcError::PersistenceUnavailable
-        }
-    })?;
-    if previous.start_at_login != settings.start_at_login {
-        use tauri_plugin_autostart::ManagerExt;
+    use tauri_plugin_autostart::ManagerExt;
 
-        let manager = app.autolaunch();
-        let result = if settings.start_at_login {
-            manager.enable()
-        } else {
-            manager.disable()
-        };
-        if result.is_err() {
-            let _ = repository.save(&previous);
-            return Err(IpcError::ServiceUnavailable);
-        }
+    let autostart = app.autolaunch();
+    persist_and_apply_settings(
+        &previous,
+        &settings,
+        |value| repository.save(value),
+        |enabled| {
+            let result = if enabled {
+                autostart.enable()
+            } else {
+                autostart.disable()
+            };
+            result.map_err(|_| ())
+        },
+    )?;
+    // Persistence and OS integrations are committed at this point. Reporting
+    // an event-delivery failure as a save failure would invite the caller to
+    // retry a transaction that already succeeded.
+    if app.emit("settings-updated", &settings).is_err() {
+        eprintln!("failed to emit settings-updated after settings were committed");
     }
-    app.emit("settings-updated", &settings)
-        .map_err(|_| IpcError::ServiceUnavailable)?;
     Ok(settings)
 }
 
@@ -288,27 +371,27 @@ fn reveal_panel(panel: &tauri::WebviewWindow) -> Result<(), IpcError> {
     Ok(())
 }
 
-#[tauri::command]
-pub fn show_panel(
-    window: tauri::WebviewWindow,
-    app: AppHandle,
-    gate: State<'_, PanelLayoutGate>,
-) -> Result<(), IpcError> {
-    authorize(&window, NativeCommand::ShowPanel)?;
-    let panel = app
-        .get_webview_window("panel")
-        .ok_or(IpcError::PanelUnavailable)?;
-    // Place it now even though the renderer may resize it in a moment: the
-    // grace timer below can reveal the panel without a second placement pass.
-    position_panel(&window, &panel)?;
+/// Cancels any pending reveal, then hides the panel.
+///
+/// Every in-process path that hides the panel goes through here, so the
+/// double-click and the `✕` cannot leave the gate in different states.
+fn conceal_panel(panel: &tauri::WebviewWindow, gate: &PanelLayoutGate) -> Result<(), IpcError> {
+    gate.disarm();
+    panel.hide().map_err(|_| IpcError::PanelUnavailable)
+}
 
-    // Already on screen: the panel is not modal and does not follow focus, so it
-    // may be buried behind another window. Raise it instead of returning without
-    // a visible effect.
-    match panel_reveal(panel.is_visible().unwrap_or(false)) {
-        PanelReveal::RaiseExisting => return reveal_panel(&panel),
-        PanelReveal::AwaitLayout => {}
-    }
+/// Anchors the panel beside the pet and arms the layout gate.
+///
+/// The panel is placed before it is revealed even though the renderer may
+/// resize it in a moment: the grace timer below can reveal the panel without a
+/// second placement pass.
+fn begin_reveal(
+    anchor: &tauri::WebviewWindow,
+    panel: &tauri::WebviewWindow,
+    app: &AppHandle,
+    gate: &PanelLayoutGate,
+) -> Result<(), IpcError> {
+    position_panel(anchor, panel)?;
     gate.awaiting_layout.store(true, Ordering::SeqCst);
 
     let deadline_app = app.clone();
@@ -325,6 +408,36 @@ pub fn show_panel(
         }
     });
     Ok(())
+}
+
+/// Toggles the usage panel from the pet's double-click.
+///
+/// The decision is made here rather than in the renderer because the panel's
+/// visibility is changed by paths the renderer never sees: the `✕`, the
+/// hide/show hotkey, and the fullscreen monitor.
+#[tauri::command]
+pub fn toggle_panel(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+    gate: State<'_, PanelLayoutGate>,
+) -> Result<PanelVisibility, IpcError> {
+    authorize(&window, NativeCommand::TogglePanel)?;
+    let panel = app
+        .get_webview_window("panel")
+        .ok_or(IpcError::PanelUnavailable)?;
+    match panel_toggle(
+        panel.is_visible().unwrap_or(false),
+        gate.awaiting_layout.load(Ordering::SeqCst),
+    ) {
+        PanelToggle::Hide => {
+            conceal_panel(&panel, gate.inner())?;
+            Ok(PanelVisibility::Hidden)
+        }
+        PanelToggle::Show => {
+            begin_reveal(&window, &panel, &app, gate.inner())?;
+            Ok(PanelVisibility::Shown)
+        }
+    }
 }
 
 pub(crate) fn position_panel(
@@ -418,7 +531,7 @@ pub fn resize_panel(
         .get_webview_window("overlay")
         .ok_or(IpcError::PanelUnavailable)?;
     position_panel(&overlay, &panel)?;
-    // The measurement this resize carries is what show_panel was waiting for.
+    // The measurement this resize carries is what toggle_panel was waiting for.
     if gate.awaiting_layout.swap(false, Ordering::SeqCst) {
         reveal_panel(&panel)?;
     }
@@ -431,9 +544,7 @@ pub fn hide_panel(
     gate: State<'_, PanelLayoutGate>,
 ) -> Result<(), IpcError> {
     authorize(&window, NativeCommand::HidePanel)?;
-    // Stop a pending grace timer from resurrecting the panel just closed.
-    gate.awaiting_layout.store(false, Ordering::SeqCst);
-    window.hide().map_err(|_| IpcError::PanelUnavailable)
+    conceal_panel(&window, gate.inner())
 }
 
 #[tauri::command]
@@ -480,5 +591,88 @@ pub fn emit_provider_states(app: &AppHandle, service: &RefreshService) {
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod settings_effect_tests {
+    use std::cell::RefCell;
+    use std::io;
+
+    use super::{persist_and_apply_settings, IpcError, Settings};
+
+    fn settings(start_at_login: bool) -> Settings {
+        Settings {
+            start_at_login,
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn an_unchanged_autostart_value_is_never_reapplied() {
+        let previous = settings(true);
+        let next = Settings {
+            bubble_enabled: false,
+            ..settings(true)
+        };
+        let autostart_calls = RefCell::new(0);
+
+        let result = persist_and_apply_settings(
+            &previous,
+            &next,
+            |_| Ok(()),
+            |_| {
+                *autostart_calls.borrow_mut() += 1;
+                Ok(())
+            },
+        );
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(*autostart_calls.borrow(), 0);
+    }
+
+    #[test]
+    fn failed_side_effect_restores_previous_persisted_settings() {
+        let previous = settings(false);
+        let next = settings(true);
+        let saved = RefCell::new(Vec::new());
+
+        let result = persist_and_apply_settings(
+            &previous,
+            &next,
+            |value| {
+                saved.borrow_mut().push(value.clone());
+                Ok(())
+            },
+            |_| Err(()),
+        );
+
+        assert_eq!(result, Err(IpcError::ServiceUnavailable));
+        assert_eq!(&*saved.borrow(), &[next, previous]);
+    }
+
+    #[test]
+    fn persistence_compensation_failure_is_reported_as_rollback_failure() {
+        let previous = settings(false);
+        let next = settings(true);
+        let save_calls = RefCell::new(0);
+
+        let result = persist_and_apply_settings(
+            &previous,
+            &next,
+            |_| {
+                let mut calls = save_calls.borrow_mut();
+                *calls += 1;
+                if *calls == 1 {
+                    Ok(())
+                } else {
+                    Err(io::Error::other("synthetic rollback failure"))
+                }
+            },
+            |_| Err(()),
+        );
+
+        assert_eq!(result, Err(IpcError::SettingsRollbackFailed));
+        assert_eq!(*save_calls.borrow(), 2);
     }
 }
