@@ -10,6 +10,12 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    watch: {
+      // Cargo writes into src-tauri/target while `tauri dev` compiles; on
+      // Windows, watching those transient build artifacts crashes Vite's
+      // watcher with EBUSY before the app ever launches.
+      ignored: ['**/src-tauri/**'],
+    },
   },
   test: {
     environment: 'jsdom',
