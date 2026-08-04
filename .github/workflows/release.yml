@@ -22,16 +22,26 @@ jobs:
         include:
           - os: windows-latest
             bundles: nsis,msi
+            target_flag: ''
+            bundle_root: src-tauri/target/release/bundle
             artifact: windows-installers
             paths: |
               src-tauri/target/release/bundle/nsis/*
               src-tauri/target/release/bundle/msi/*
+          # One universal DMG rather than a DMG per architecture: a tester on an
+          # unsigned beta should not have to know whether their Mac is Intel or
+          # Apple Silicon to pick the right download. Naming a target also moves
+          # the bundle under target/<triple>/, hence bundle_root.
           - os: macos-latest
             bundles: dmg
+            target_flag: '--target universal-apple-darwin'
+            bundle_root: src-tauri/target/universal-apple-darwin/release/bundle
             artifact: macos-unsigned-validation-dmg
-            paths: src-tauri/target/release/bundle/dmg/*
+            paths: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*
           - os: ubuntu-latest
             bundles: appimage
+            target_flag: ''
+            bundle_root: src-tauri/target/release/bundle
             artifact: linux-appimage
             paths: src-tauri/target/release/bundle/appimage/*
     runs-on: ${{ matrix.os }}
@@ -43,6 +53,11 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: { node-version: 22, cache: pnpm }
       - uses: dtolnay/rust-toolchain@46511b1c83438f0dd37c02d843619ece5a4abb5b # 1.97.1
+      # A universal binary is lipo'd from both slices, so both have to be
+      # installed even though the runner only builds natively for one.
+      - name: Add the macOS universal build targets
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
       - name: Install Linux packaging prerequisites
         if: runner.os == 'Linux'
         run: |
@@ -51,14 +66,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:ci
       - run: cargo test --manifest-path src-tauri/Cargo.toml --all-features
-      - run: pnpm tauri build --bundles ${{ matrix.bundles }}
+      - run: pnpm tauri build --bundles ${{ matrix.bundles }} ${{ matrix.target_flag }}
       - name: Create SHA-256 checksums (Unix)
         if: runner.os != 'Windows'
-        run: find src-tauri/target/release/bundle -type f -print0 | sort -z | xargs -0 shasum -a 256 > SHA256SUMS.txt
+        run: find ${{ matrix.bundle_root }} -type f -print0 | sort -z | xargs -0 shasum -a 256 > SHA256SUMS.txt
       - name: Create SHA-256 checksums (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Get-ChildItem src-tauri/target/release/bundle -Recurse -File | Get-FileHash -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path)" } | Set-Content SHA256SUMS.txt
+        run: Get-ChildItem ${{ matrix.bundle_root }} -Recurse -File | Get-FileHash -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path)" } | Set-Content SHA256SUMS.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.artifact }}
@@ -131,6 +146,8 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: { node-version: 22, cache: pnpm }
       - uses: dtolnay/rust-toolchain@46511b1c83438f0dd37c02d843619ece5a4abb5b # 1.97.1
+      - name: Add the macOS universal build targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
       - run: pnpm install --frozen-lockfile
       - name: Validate protected signing inputs
         env:
@@ -149,12 +166,12 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: pnpm tauri build --bundles dmg
-      - run: find src-tauri/target/release/bundle/dmg -type f -print0 | sort -z | xargs -0 shasum -a 256 > SHA256SUMS.txt
+        run: pnpm tauri build --bundles dmg --target universal-apple-darwin
+      - run: find src-tauri/target/universal-apple-darwin/release/bundle/dmg -type f -print0 | sort -z | xargs -0 shasum -a 256 > SHA256SUMS.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: macos-signed-notarized-dmg
           path: |
-            src-tauri/target/release/bundle/dmg/*
+            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*
             SHA256SUMS.txt
           if-no-files-found: error
