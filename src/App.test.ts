@@ -475,6 +475,16 @@ describe('application composition root', () => {
     await expectLatchReleased();
   });
 
+  it('heals a stuck drag latch on a secondary-button press without opening a gesture', async () => {
+    const { gateway, overlay } = await dragUntilLatched();
+    // A right-click straight after a swallowed drop is the menu gesture: it
+    // must still run the latch recovery, but never open a new drag.
+    await fireEvent(overlay, pointerEvent('pointerdown', 10, 10, 2, 2));
+    await expectLatchReleased();
+    await fireEvent(overlay, pointerEvent('pointermove', 40, 10, 2, 2));
+    expect(gateway.startDragging).toHaveBeenCalledOnce();
+  });
+
   it('keeps the usage animation during a drag when the package has no dragging asset', async () => {
     const { gateway } = fixture();
     vi.mocked(gateway.getPetPackage).mockResolvedValue({

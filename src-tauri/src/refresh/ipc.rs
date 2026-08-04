@@ -496,13 +496,18 @@ pub fn show_pet_menu(
     use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 
     authorize(&window, NativeCommand::ShowPetMenu)?;
-    let panel = app
+    // A missing panel window must not take "Hide pet" and "Quit CacheBite"
+    // down with it — those items are exactly why the menu exists. The label
+    // falls back to the Show toggle; a click then goes through
+    // `toggle_panel_from_menu`, which logs its own lookup failure.
+    let panel_label = app
         .get_webview_window("panel")
-        .ok_or(IpcError::PanelUnavailable)?;
+        .map(|panel| pet_menu_panel_label(pending_panel_toggle(&panel, gate.inner())))
+        .unwrap_or(pet_menu_panel_label(PanelToggle::Show));
     let panel_item = MenuItem::with_id(
         &app,
         PET_MENU_TOGGLE_PANEL_ID,
-        pet_menu_panel_label(pending_panel_toggle(&panel, gate.inner())),
+        panel_label,
         true,
         None::<&str>,
     )
