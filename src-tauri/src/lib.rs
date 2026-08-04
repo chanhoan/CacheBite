@@ -24,6 +24,7 @@ fn apply_invoke_handler(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<t
         refresh::ipc::refresh_provider,
         refresh::ipc::update_settings,
         refresh::ipc::toggle_panel,
+        refresh::ipc::show_pet_menu,
         refresh::ipc::resize_panel,
         refresh::ipc::hide_panel,
         refresh::ipc::quit,
@@ -44,6 +45,7 @@ fn apply_invoke_handler(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<t
         refresh::ipc::refresh_provider,
         refresh::ipc::update_settings,
         refresh::ipc::toggle_panel,
+        refresh::ipc::show_pet_menu,
         refresh::ipc::resize_panel,
         refresh::ipc::hide_panel,
         refresh::ipc::quit,
@@ -56,6 +58,22 @@ pub fn run() {
     use tauri::Manager;
 
     let builder = tauri::Builder::default()
+        // Pet context-menu clicks land here; the popup itself is built per
+        // right-click in `refresh::ipc::show_pet_menu`. Dispatch goes through
+        // `pet_menu_action` so unknown ids fall through untouched.
+        .on_menu_event(|app, event| {
+            match window::pet_menu_action(event.id().0.as_str()) {
+                Some(window::PetMenuAction::TogglePanel) => {
+                    refresh::ipc::toggle_panel_from_menu(app);
+                }
+                // The menu only ever pops from a visible pet, so the toggle
+                // always hides here — and it sets the same `user_hidden` latch
+                // as the hotkey, so fullscreen exit will not resurrect the pet.
+                Some(window::PetMenuAction::HidePet) => toggle_overlay_visibility(app),
+                Some(window::PetMenuAction::Quit) => app.exit(0),
+                None => {}
+            }
+        })
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,

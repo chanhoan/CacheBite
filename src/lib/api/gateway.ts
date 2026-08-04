@@ -101,6 +101,12 @@ export interface AppGateway {
   ): Promise<() => void>;
   /** Authorized for the `overlay` window only (`window::command_allowed`). */
   togglePanel(): Promise<PanelVisibility>;
+  /**
+   * Pops the native pet context menu at the cursor. Authorized for the
+   * `overlay` window only (`window::command_allowed`); item actions are
+   * handled entirely in Rust.
+   */
+  showPetMenu(): Promise<void>;
   /** Keeps the native panel frame fitted to its rendered content. */
   resizePanel(height: number): Promise<void>;
   /** Authorized for the `panel` window only (`window::command_allowed`). */
@@ -256,6 +262,7 @@ export const tauriGateway: AppGateway = {
     };
   },
   togglePanel: () => invokeNative('toggle_panel'),
+  showPetMenu: () => invokeNative('show_pet_menu'),
   resizePanel: (height) => {
     if (!Number.isFinite(height) || height <= 0) {
       return Promise.reject(

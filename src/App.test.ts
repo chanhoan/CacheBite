@@ -41,12 +41,19 @@ const active = (
 // carry the fields the overlay reads. `buttons` defaults to a held primary
 // button: a real pointer event always carries a number, and leaving it
 // undefined would let `pointerButtonsReleased` pass for the wrong reason.
-const pointerEvent = (type: string, x: number, y: number, buttons = 1) => {
+const pointerEvent = (
+  type: string,
+  x: number,
+  y: number,
+  buttons = 1,
+  button = 0,
+) => {
   const event = new Event(type, { bubbles: true });
   Object.defineProperties(event, {
     clientX: { value: x },
     clientY: { value: y },
     buttons: { value: buttons },
+    button: { value: button },
   });
   return event;
 };
@@ -141,6 +148,7 @@ const fixture = () => {
     startDragging: vi.fn(async () => undefined),
     listenPositionMoved: vi.fn(async () => () => undefined),
     togglePanel: vi.fn(async () => 'shown' as const),
+    showPetMenu: vi.fn(async () => undefined),
     resizePanel: vi.fn(async () => undefined),
     hidePanel: vi.fn(async () => undefined),
     quit: vi.fn(async () => undefined),
@@ -394,6 +402,23 @@ describe('application composition root', () => {
     await fireEvent(overlay, pointerEvent('pointermove', 20, 10));
     await fireEvent(overlay, pointerEvent('pointermove', 30, 10));
     expect(gateway.startDragging).toHaveBeenCalledOnce();
+  });
+
+  it('requests the native pet menu on right-click without opening a drag gesture', async () => {
+    const { gateway } = fixture();
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+    const overlay = await screen.findByTestId('overlay-pointer-surface');
+    // The secondary button must not open a drag latch: the native menu
+    // consumes the matching pointerup, so a latch opened here would outlive
+    // the popup.
+    await fireEvent(overlay, pointerEvent('pointerdown', 10, 10, 2, 2));
+    await fireEvent(overlay, pointerEvent('pointermove', 40, 10, 2, 2));
+    expect(gateway.startDragging).not.toHaveBeenCalled();
+    await fireEvent(
+      overlay,
+      new MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
+    );
+    expect(gateway.showPetMenu).toHaveBeenCalledOnce();
   });
 
   // Drives a gesture past the drag threshold and leaves it there: from this
