@@ -54,6 +54,9 @@ Uninstall from **Settings → Apps → Installed apps → CacheBite**.
 
 ### macOS
 
+The DMG is built for **Apple Silicon** (`aarch64`) only — an Intel Mac has
+nothing to install in this beta.
+
 The DMG is unsigned and un-notarized, so Gatekeeper blocks it by default. After
 dragging CacheBite to Applications:
 
@@ -122,6 +125,11 @@ Uninstall by deleting the AppImage.
 6. **Panel toggle.** Double-click the pet repeatedly, including two clicks in
    quick succession. The panel must alternate open and closed every time and
    never end up in a state where the gesture stops responding.
+7. **Fullscreen auto-hide, Windows only.** Put another app fullscreen — a game,
+   a video, a slide deck. The pet and panel must disappear, and come back when
+   you leave fullscreen. Then repeat it the other way round: hide the pet with
+   the shortcut *first*, go fullscreen, and come back out. Leaving fullscreen
+   must not resurrect a pet you hid deliberately.
 
 ## Reporting
 
@@ -146,7 +154,9 @@ and we will find another way to reproduce it.
 
 - No code signing on any platform.
 - No auto-update.
-- Fullscreen detection reports unavailable, so the pet does not yet hide during
-  presentations.
+- Fullscreen auto-hide works on Windows only. macOS and Linux report the
+  capability as unavailable, so the pet stays put during a presentation there —
+  use the hide/show shortcut instead.
+- The macOS DMG is Apple Silicon only. There is no Intel build in this beta.
 - macOS is validation-only until the signing and notarization environment is
   configured.
