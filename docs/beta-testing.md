@@ -54,8 +54,7 @@ Uninstall from **Settings → Apps → Installed apps → CacheBite**.
 
 ### macOS
 
-The DMG is built for **Apple Silicon** (`aarch64`) only — an Intel Mac has
-nothing to install in this beta.
+The DMG is a universal binary — the same file runs on Apple Silicon and Intel.
 
 The DMG is unsigned and un-notarized, so Gatekeeper blocks it by default. After
 dragging CacheBite to Applications:
@@ -157,6 +156,5 @@ and we will find another way to reproduce it.
 - Fullscreen auto-hide works on Windows only. macOS and Linux report the
   capability as unavailable, so the pet stays put during a presentation there —
   use the hide/show shortcut instead.
-- The macOS DMG is Apple Silicon only. There is no Intel build in this beta.
 - macOS is validation-only until the signing and notarization environment is
   configured.
