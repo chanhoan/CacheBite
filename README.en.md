@@ -68,11 +68,13 @@ Verify downloads against `SHA256SUMS.txt` before installing. Platform-specific i
 
 1. Install and launch CacheBite.
 2. A small pet appears on your desktop. Drag it anywhere. The position is saved per display.
-3. Double-click the pet, or press Enter while it has focus, to open the usage panel.
+3. Double-click the pet, or press Enter while it has focus, to show or hide the usage panel. A single click does not open it.
 4. The panel shows Claude and Codex as tabs, not side by side. Each tab shows a session arc and a weekly arc. For the currently supported providers, the session arc is surfaced as a 5-hour window.
 5. Switch tabs to inspect the other provider.
 6. Click `Refresh now` to fetch fresh usage, or `Set as primary` to choose the provider whose usage drives the pet ring and status.
 7. Open `Settings` to change appearance, primary provider, pet, bubbles, notifications, secondary provider notifications, and start at login.
+
+Use `Ctrl+Shift+H` on Windows and Linux, or `Cmd+Shift+H` on macOS, to hide or show the pet globally. Hiding the pet also closes the usage panel. The shortcut is fixed rather than user-configurable; if another application already owns it, CacheBite reports the conflict in Settings and keeps running.
 
 The pet you pick is independent from the primary provider. Changing one does not change the other.
 
@@ -83,7 +85,7 @@ UI states shown in the app:
 - `Fresh` means the snapshot is current.
 - `Stale` means the data is still shown, but it is past the fresh window.
 - If a provider is signed out or unavailable, CacheBite shows that state instead of pretending it has usage data.
-- Fullscreen detection is unavailable on the current build, so CacheBite does not currently hide the pet during presentations. It surfaces that status instead of pretending otherwise.
+- On Windows, CacheBite hides the pet and panel while another application is fullscreen. Leaving fullscreen restores the pet unless you explicitly hid it with the global shortcut. Other platforms report fullscreen detection as unavailable instead of pretending it works.
 
 ---
 
@@ -98,12 +100,14 @@ UI states shown in the app:
 
 ## Features
 
-| Area        | What CacheBite does                                                                                 |
-| ----------- | --------------------------------------------------------------------------------------------------- |
-| Desktop pet | Keeps a movable pet on screen and remembers its position per display.                               |
-| Usage view  | Shows Claude and Codex in tabs, with session and weekly windows.                                    |
-| Ring state  | Uses the primary provider to drive the pet's mood and ring state.                                   |
-| Settings    | Lets you switch appearance, provider focus, pet choice, bubbles, notifications, and start at login. |
+| Area                 | What CacheBite does                                                                                 |
+| -------------------- | --------------------------------------------------------------------------------------------------- |
+| Desktop pet          | Keeps a movable pet on screen and remembers its position per display.                               |
+| Usage view           | Toggles a Claude and Codex tabbed panel with session and weekly windows.                            |
+| Ring state           | Uses the primary provider to drive the pet's mood and ring state.                                   |
+| Global visibility    | Hides or shows the pet with `Ctrl/Cmd+Shift+H`; hiding it also closes the panel.                    |
+| Presentation privacy | Hides the pet and panel when a foreground application is fullscreen on Windows.                     |
+| Settings             | Lets you switch appearance, provider focus, pet choice, bubbles, notifications, and start at login. |
 
 ---
 
@@ -125,7 +129,8 @@ UI states shown in the app:
 - The beta is still unsigned.
 - Release publishing still needs a manual step.
 - There is no auto-updater yet.
-- Fullscreen detection is unavailable on the current build, so the pet does not currently hide during presentations.
+- Fullscreen detection currently works on Windows only. macOS and Linux expose the limitation in Settings.
+- The global hide/show shortcut is fixed. If the operating system or another application owns it, CacheBite reports it as unavailable.
 - When only one provider is signed in, the other provider remains unavailable.
 
 ---
