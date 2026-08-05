@@ -294,7 +294,7 @@ describe('updater release automation', () => {
     // Asserting the button is merely enabled is what let the no-op retry ship.
     expect(nativeSpec).toContain('get_update_probe_count');
     expect(nativeSpec).toContain(
-      'retries a failed update by running another check',
+      'retries a failed update from Settings by running another check',
     );
   });
 
