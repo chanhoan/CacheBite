@@ -171,26 +171,24 @@ describe('native platform capability contract', () => {
 });
 
 describe('native production-composition spec', () => {
-  it('retries labeled embedded-window discovery until its DOM is loaded', () => {
-    expect(nativeSpec).toMatch(
-      /browser\.waitUntil\(\s*async \(\) => \{[\s\S]*await browser\.getWindowHandles\(\)/,
-    );
-    expect(nativeSpec).toMatch(
-      /handles\.find\(\(handle\) => handle === label\)/,
-    );
+  it('uses labeled Tauri switching to suppress active-window autofocus', () => {
+    expect(nativeSpec).toContain('let windowSwitchingInitialized = false;');
+    expect(nativeSpec).toContain('await browser.tauri.switchWindow(label);');
+    expect(nativeSpec).toContain('await browser.switchToWindow(label);');
+    expect(nativeSpec).not.toContain('await browser.switchToWindow(handle);');
   });
 
-  it('returns to the overlay before opening the panel for provider assertions', () => {
+  it('opens the panel deterministically before provider assertions', () => {
     const productionCase =
       nativeSpec.split(
         "it('shows credential-free production provider states",
       )[1] ?? '';
     expect(
-      productionCase.indexOf("switchToCacheBiteWindow('overlay')"),
+      productionCase.indexOf('showPanelFromOverlayWindow()'),
     ).toBeGreaterThanOrEqual(0);
-    expect(
-      productionCase.indexOf("switchToCacheBiteWindow('overlay')"),
-    ).toBeLessThan(productionCase.indexOf('main[data-window-label="overlay"]'));
+    expect(productionCase.indexOf('showPanelFromOverlayWindow()')).toBeLessThan(
+      productionCase.indexOf('$(\'button[role="tab"]=Claude\')'),
+    );
   });
 
   it('allows documented non-Windows fullscreen capability degradation', () => {

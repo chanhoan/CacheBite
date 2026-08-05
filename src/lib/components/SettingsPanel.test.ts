@@ -115,18 +115,20 @@ describe('SettingsPanel', () => {
     expect(screen.queryByText(conflictMessage)).toBeNull();
   });
 
-  it('reports the running version and the update status', () => {
+  it('omits version and update controls from the lower settings section', () => {
     render(SettingsPanel, {
       props: {
         settings,
         pets: [{ id: 'tabby', displayName: 'Tabby' }],
-        currentVersion: '0.1.0-beta.4',
-        updateLine: 'Up to date',
       },
     });
 
-    expect(screen.queryByText('0.1.0-beta.4')).not.toBeNull();
-    expect(screen.queryByText('Up to date')).not.toBeNull();
+    expect(screen.queryByText('Version')).toBeNull();
+    expect(screen.queryByText('0.1.0-beta.4')).toBeNull();
+    expect(screen.queryByText('Updates')).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Check for updates' }),
+    ).toBeNull();
   });
 
   it('shows the available update row before Appearance and installs once per click', async () => {
@@ -151,6 +153,10 @@ describe('SettingsPanel', () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(screen.getByText('Update available')).toBeTruthy();
+    expect(screen.queryByText('Updates')).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Check for updates' }),
+    ).toBeNull();
     expect(screen.queryByText('Later')).toBeNull();
     expect(screen.queryByText('Fixes a crash.')).toBeNull();
 
@@ -191,53 +197,5 @@ describe('SettingsPanel', () => {
         .getByRole('button', { name: 'Install and restart' })
         .hasAttribute('disabled'),
     ).toBe(true);
-  });
-
-  it('invokes onCheckUpdate once per click', async () => {
-    const onCheckUpdate = vi.fn();
-    render(SettingsPanel, {
-      props: {
-        settings,
-        pets: [{ id: 'tabby', displayName: 'Tabby' }],
-        onCheckUpdate,
-      },
-    });
-
-    await fireEvent.click(
-      screen.getByRole('button', { name: 'Check for updates' }),
-    );
-
-    expect(onCheckUpdate).toHaveBeenCalledTimes(1);
-  });
-
-  it('disables the manual check while one is already in flight', () => {
-    render(SettingsPanel, {
-      props: {
-        settings,
-        pets: [{ id: 'tabby', displayName: 'Tabby' }],
-        updateBusy: true,
-        updateLine: 'Checking…',
-      },
-    });
-
-    expect(
-      screen
-        .getByRole('button', { name: 'Check for updates' })
-        .hasAttribute('disabled'),
-    ).toBe(true);
-  });
-
-  it('keeps the version row read-only', () => {
-    render(SettingsPanel, {
-      props: {
-        settings,
-        pets: [{ id: 'tabby', displayName: 'Tabby' }],
-        currentVersion: '0.1.0-beta.4',
-      },
-    });
-
-    // The version comes from the bundle, which CI derives from the git tag.
-    // An editable field here would invite a value the updater cannot honour.
-    expect(screen.queryByRole('textbox')).toBeNull();
   });
 });

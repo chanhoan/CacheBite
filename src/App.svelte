@@ -692,12 +692,9 @@
             .status !== 'unavailable'}
           pets={petOptions}
           {availableUpdateVersion}
-          currentVersion={updateState?.currentVersion ?? '?'}
-          updateLine={updateView?.settingsLine ?? 'Not checked yet'}
           updateBusy={updateView?.busy ?? false}
           onChange={(settings) => void changeSettings(settings)}
           onThemeChange={changeTheme}
-          onCheckUpdate={() => void gateway.checkForUpdate().catch(() => {})}
           onInstallUpdate={() => void gateway.installUpdate().catch(() => {})}
         />
       </div>

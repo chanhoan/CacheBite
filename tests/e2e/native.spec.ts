@@ -43,25 +43,23 @@ if (expectedMode !== 'fixture' && expectedMode !== 'production') {
 }
 
 describe(`CacheBite native ${expectedMode} composition smoke`, () => {
+  let windowSwitchingInitialized = false;
+
   const switchToCacheBiteWindow = async (label: 'overlay' | 'panel') => {
+    if (windowSwitchingInitialized) {
+      await browser.switchToWindow(label);
+    } else {
+      await browser.tauri.switchWindow(label);
+      windowSwitchingInitialized = true;
+    }
+
     await browser.waitUntil(
       async () => {
-        const handles = await browser.getWindowHandles();
-        const labeledHandle = handles.find((handle) => handle === label);
-        const candidates = labeledHandle
-          ? [labeledHandle, ...handles.filter((handle) => handle !== label)]
-          : handles;
-
-        for (const handle of candidates) {
-          await browser.switchToWindow(handle);
-          const main = $('main[aria-label="CacheBite"]');
-          if (
-            (await main.isExisting()) &&
-            (await main.getAttribute('data-window-label')) === label
-          )
-            return true;
-        }
-        return false;
+        const main = $('main[aria-label="CacheBite"]');
+        return (
+          (await main.isExisting()) &&
+          (await main.getAttribute('data-window-label')) === label
+        );
       },
       { timeoutMsg: `CacheBite ${label} window was not found` },
     );
@@ -127,6 +125,20 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
     );
   };
 
+  const showPanelFromOverlayWindow = async () => {
+    await switchToCacheBiteWindow('overlay');
+    const showResult = await invokeFromCurrentWindow<'shown' | 'hidden'>(
+      'toggle_panel',
+    );
+
+    if (showResult.status !== 'resolved')
+      throw new Error(`toggle_panel was rejected: ${showResult.reason}`);
+
+    expect(showResult.value).toBe('shown');
+    await waitForPanelVisibility(true);
+    await switchToCacheBiteWindow('panel');
+  };
+
   const hidePanelFromPanelWindow = async () => {
     await switchToCacheBiteWindow('panel');
     const hideResult = await invokeFromCurrentWindow('hide_panel');
@@ -172,6 +184,7 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
   };
 
   it('hydrates through registered IPC and reports the selected collectors', async () => {
+    await showPanelFromOverlayWindow();
     const app = $('main[aria-label="CacheBite"]');
     await expect(app).toExist();
     await expect(app).toHaveAttribute(
@@ -195,10 +208,7 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
       reason: 'forbidden',
     });
 
-    await $(
-      'main[data-window-label="overlay"] [data-testid="overlay-pointer-surface"]',
-    ).doubleClick();
-    await switchToCacheBiteWindow('panel');
+    await showPanelFromOverlayWindow();
 
     await expect($('section[aria-label="Usage panel"]')).toExist();
     const panelHistory =
@@ -241,11 +251,7 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
   });
 
   it('authorizes the panel toggle only from the overlay window', async () => {
-    await switchToCacheBiteWindow('overlay');
-    await $(
-      'main[data-window-label="overlay"] [data-testid="overlay-pointer-surface"]',
-    ).doubleClick();
-    await switchToCacheBiteWindow('panel');
+    await showPanelFromOverlayWindow();
     await expect($('section[aria-label="Usage panel"]')).toExist();
 
     // The panel dismisses itself with `hide_panel`; the toggle is the pet's.
@@ -273,11 +279,7 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
 
   if (expectedMode === 'fixture') {
     const openPanel = async () => {
-      await switchToCacheBiteWindow('overlay');
-      await $(
-        'main[data-window-label="overlay"] [data-testid="overlay-pointer-surface"]',
-      ).doubleClick();
-      await switchToCacheBiteWindow('panel');
+      await showPanelFromOverlayWindow();
     };
 
     const readUpdateState = async () => {
@@ -335,10 +337,11 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
         );
         await expect(settingsSection).toExist();
         const availableUpdateText = 'Update available';
-        await expect($('span=' + availableUpdateText)).toHaveText(
+        await expect($('.update-available-row span')).toHaveText(
           availableUpdateText,
         );
         await expect($('button=Install and restart')).toBeEnabled();
+        await expect($('button=Check for updates')).not.toExist();
         await expect($('button=Later')).not.toExist();
       });
 
@@ -425,11 +428,7 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
 
   if (expectedMode === 'production') {
     it('shows credential-free production provider states after panel hydration', async () => {
-      await switchToCacheBiteWindow('overlay');
-      await $(
-        'main[data-window-label="overlay"] [data-testid="overlay-pointer-surface"]',
-      ).doubleClick();
-      await switchToCacheBiteWindow('panel');
+      await showPanelFromOverlayWindow();
 
       const claudeTab = $('button[role="tab"]=Claude');
       await claudeTab.click();
