@@ -364,6 +364,26 @@ fn native_commands_are_authorized_by_window_label() {
     // The pet gesture is the overlay's; the panel dismisses itself with `hide_panel`.
     assert!(!command_allowed("panel", NativeCommand::TogglePanel));
     assert!(!command_allowed("unknown", NativeCommand::TogglePanel));
+    // The context menu is the pet's gesture; item actions run in Rust, so the
+    // overlay still cannot call `quit` or the other panel-only commands.
+    assert!(command_allowed("overlay", NativeCommand::ShowPetMenu));
+    assert!(!command_allowed("panel", NativeCommand::ShowPetMenu));
+    assert!(!command_allowed("unknown", NativeCommand::ShowPetMenu));
+}
+
+#[test]
+fn pet_menu_ids_map_to_their_actions_and_unknown_ids_to_none() {
+    assert_eq!(
+        pet_menu_action(PET_MENU_TOGGLE_PANEL_ID),
+        Some(PetMenuAction::TogglePanel)
+    );
+    assert_eq!(
+        pet_menu_action(PET_MENU_HIDE_PET_ID),
+        Some(PetMenuAction::HidePet)
+    );
+    assert_eq!(pet_menu_action(PET_MENU_QUIT_ID), Some(PetMenuAction::Quit));
+    // Ids from other menus (or future items) must fall through untouched.
+    assert_eq!(pet_menu_action("unrelated-menu-item"), None);
 }
 
 /// The update notice and the Settings check both live in the panel. Granting

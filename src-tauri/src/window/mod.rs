@@ -72,6 +72,7 @@ pub enum NativeCommand {
     RefreshProvider,
     UpdateSettings,
     TogglePanel,
+    ShowPetMenu,
     ResizePanel,
     HidePanel,
     Quit,
@@ -91,6 +92,7 @@ pub fn command_allowed(window_label: &str, command: NativeCommand) -> bool {
                 | NativeCommand::GetPlatformCapabilities
                 | NativeCommand::SavePosition
                 | NativeCommand::TogglePanel
+                | NativeCommand::ShowPetMenu
         ),
         "panel" => matches!(
             command,
@@ -140,6 +142,34 @@ pub fn panel_toggle(visible: bool, reveal_pending: bool) -> PanelToggle {
         PanelToggle::Hide
     } else {
         PanelToggle::Show
+    }
+}
+
+/// Stable ids for the pet context menu items. The popup is built per
+/// right-click in `refresh::ipc`, but the click events arrive through the
+/// app-wide menu handler in `lib.rs` — shared constants keep the two ends of
+/// that seam from drifting apart.
+pub const PET_MENU_TOGGLE_PANEL_ID: &str = "pet-menu-toggle-panel";
+pub const PET_MENU_HIDE_PET_ID: &str = "pet-menu-hide-pet";
+pub const PET_MENU_QUIT_ID: &str = "pet-menu-quit";
+
+/// What a clicked pet-menu item must do.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PetMenuAction {
+    TogglePanel,
+    HidePet,
+    Quit,
+}
+
+/// Maps a menu event id to its action, or `None` for ids the pet menu does not
+/// own. Pure so the dispatch stays test-covered; the `lib.rs` handler is a
+/// single match with no string comparison of its own.
+pub fn pet_menu_action(menu_id: &str) -> Option<PetMenuAction> {
+    match menu_id {
+        PET_MENU_TOGGLE_PANEL_ID => Some(PetMenuAction::TogglePanel),
+        PET_MENU_HIDE_PET_ID => Some(PetMenuAction::HidePet),
+        PET_MENU_QUIT_ID => Some(PetMenuAction::Quit),
+        _ => None,
     }
 }
 

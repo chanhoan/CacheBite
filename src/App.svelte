@@ -623,8 +623,14 @@
   };
   const pointerDown = (event: PointerEvent) => {
     // Last-resort recovery: if every release signal was swallowed by the OS
-    // drag loop, the next gesture still starts from a clean latch.
+    // drag loop, the next gesture still starts from a clean latch. This runs
+    // for every button — a right-click after a swallowed drop must still heal
+    // the stuck latch.
     endPointerInteraction();
+    // Only the primary button opens a drag gesture: a right-click is the menu
+    // gesture, and a latch opened here would outlive the popup because the
+    // matching pointerup is consumed by the native menu.
+    if (event.button !== 0) return;
     (
       event.currentTarget as EventTarget & {
         setPointerCapture?: (pointerId: number) => void;
@@ -746,6 +752,7 @@
           onPointerUp={pointerUp}
           onPointerCancel={pointerCancel}
           onToggle={() => void gateway.togglePanel()}
+          onShowMenu={() => void gateway.showPetMenu()}
         />
       {:else if petPackageError}
         <p role="status">Pet package unavailable</p>
