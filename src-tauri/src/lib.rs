@@ -25,6 +25,7 @@ fn apply_invoke_handler(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<t
         refresh::ipc::refresh_provider,
         refresh::ipc::update_settings,
         refresh::ipc::toggle_panel,
+        refresh::ipc::show_pet_menu,
         refresh::ipc::resize_panel,
         refresh::ipc::hide_panel,
         refresh::ipc::quit,
@@ -49,6 +50,7 @@ fn apply_invoke_handler(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<t
         refresh::ipc::refresh_provider,
         refresh::ipc::update_settings,
         refresh::ipc::toggle_panel,
+        refresh::ipc::show_pet_menu,
         refresh::ipc::resize_panel,
         refresh::ipc::hide_panel,
         refresh::ipc::quit,
@@ -64,6 +66,19 @@ pub fn run() {
     use tauri::Manager;
 
     let builder = tauri::Builder::default()
+        // Pet context-menu clicks land here; the popup itself is built per
+        // right-click in `refresh::ipc::show_pet_menu`. Dispatch goes through
+        // `pet_menu_action` so unknown ids fall through untouched.
+        .on_menu_event(
+            |app, event| match window::pet_menu_action(event.id().0.as_str()) {
+                Some(window::PetMenuAction::TogglePanel) => {
+                    refresh::ipc::toggle_panel_from_menu(app);
+                }
+                Some(window::PetMenuAction::HidePet) => hide_overlay_from_menu(app),
+                Some(window::PetMenuAction::Quit) => app.exit(0),
+                None => {}
+            },
+        )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
@@ -261,6 +276,48 @@ struct OverlayHideGate {
     user_hidden: std::sync::atomic::AtomicBool,
 }
 
+/// Hides the overlay and the panel that belongs to it.
+///
+/// Shared by the hotkey's hide edge and the context menu's "Hide pet" item so
+/// the two gestures cannot diverge on which windows go away.
+fn hide_overlay_windows(app: &tauri::AppHandle) {
+    use tauri::Manager;
+
+    if let Some(overlay) = app.get_webview_window("overlay") {
+        let _ = overlay.hide();
+    }
+    if let Some(panel) = app.get_webview_window("panel") {
+        // A reveal armed moments ago would otherwise put the panel back on
+        // screen while the pet it belongs to is hidden.
+        if let Some(gate) = app.try_state::<refresh::ipc::PanelLayoutGate>() {
+            gate.disarm();
+        }
+        let _ = panel.hide();
+    }
+}
+
+/// Hides the pet from the context menu's "Hide pet" item.
+///
+/// Deliberately not a toggle: the menu popped from a visible pet, but the
+/// global hotkey stays live while the popup is open, so by click time the pet
+/// may already be hidden — a toggle would surprise-reshow it. Sets the same
+/// `user_hidden` latch the hotkey uses, so fullscreen exit will not resurrect
+/// the pet either.
+fn hide_overlay_from_menu(app: &tauri::AppHandle) {
+    use std::sync::atomic::Ordering;
+    use tauri::Manager;
+
+    if app
+        .state::<OverlayHideGate>()
+        .user_hidden
+        .swap(true, Ordering::SeqCst)
+    {
+        // Already hidden by an explicit user gesture; nothing left to hide.
+        return;
+    }
+    hide_overlay_windows(app);
+}
+
 fn toggle_overlay_visibility(app: &tauri::AppHandle) {
     use std::sync::atomic::Ordering;
     use tauri::Manager;
@@ -275,15 +332,7 @@ fn toggle_overlay_visibility(app: &tauri::AppHandle) {
         return;
     };
     if hidden {
-        let _ = overlay.hide();
-        if let Some(panel) = app.get_webview_window("panel") {
-            // A reveal armed moments ago would otherwise put the panel back on
-            // screen while the pet it belongs to is hidden.
-            if let Some(gate) = app.try_state::<refresh::ipc::PanelLayoutGate>() {
-                gate.disarm();
-            }
-            let _ = panel.hide();
-        }
+        hide_overlay_windows(app);
         return;
     }
     #[cfg(windows)]

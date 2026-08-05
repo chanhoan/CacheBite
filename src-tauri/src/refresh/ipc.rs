@@ -14,7 +14,8 @@ use crate::{
     },
     window::{
         command_allowed, panel_toggle, CapabilityDiagnostic, HideShowHotkeyCapability,
-        NativeCommand, PanelToggle, PlatformCapabilities,
+        NativeCommand, PanelToggle, PlatformCapabilities, DEFAULT_HIDE_SHOW_HOTKEY,
+        PET_MENU_HIDE_PET_ID, PET_MENU_QUIT_ID, PET_MENU_TOGGLE_PANEL_ID,
     },
 };
 use serde::Serialize;
@@ -148,6 +149,7 @@ pub enum IpcError {
     InvalidPanelSize,
     PersistenceUnavailable,
     PanelUnavailable,
+    MenuUnavailable,
     SettingsRollbackFailed,
 }
 
@@ -422,6 +424,51 @@ fn begin_reveal(
     Ok(())
 }
 
+/// The label the pet menu's panel item must carry for the toggle its click
+/// would perform.
+///
+/// UI copy lives here at the IPC boundary, not in `window/` — that module is
+/// pure policy (ids, dispatch, geometry) and must stay copy-free so wording
+/// changes never touch policy tests. Derived from [`PanelToggle`] so the menu
+/// never promises the opposite of what the click does.
+fn pet_menu_panel_label(toggle: PanelToggle) -> &'static str {
+    match toggle {
+        PanelToggle::Hide => "Hide usage panel",
+        PanelToggle::Show => "Show usage panel",
+    }
+}
+
+/// The toggle the next panel gesture would perform, from the panel's real
+/// visibility plus any pending reveal — the two signals `panel_toggle` needs.
+fn pending_panel_toggle(panel: &tauri::WebviewWindow, gate: &PanelLayoutGate) -> PanelToggle {
+    panel_toggle(
+        panel.is_visible().unwrap_or(false),
+        gate.awaiting_layout.load(Ordering::SeqCst),
+    )
+}
+
+/// Applies one panel toggle, anchored to the given overlay window.
+///
+/// Shared by the double-click command and the context-menu item so the two
+/// gestures cannot diverge on how visibility is read or how a reveal is armed.
+fn apply_panel_toggle(
+    anchor: &tauri::WebviewWindow,
+    panel: &tauri::WebviewWindow,
+    app: &AppHandle,
+    gate: &PanelLayoutGate,
+) -> Result<PanelVisibility, IpcError> {
+    match pending_panel_toggle(panel, gate) {
+        PanelToggle::Hide => {
+            conceal_panel(panel, gate)?;
+            Ok(PanelVisibility::Hidden)
+        }
+        PanelToggle::Show => {
+            begin_reveal(anchor, panel, app, gate)?;
+            Ok(PanelVisibility::Shown)
+        }
+    }
+}
+
 /// Toggles the usage panel from the pet's double-click.
 ///
 /// The decision is made here rather than in the renderer because the panel's
@@ -437,19 +484,79 @@ pub fn toggle_panel(
     let panel = app
         .get_webview_window("panel")
         .ok_or(IpcError::PanelUnavailable)?;
-    match panel_toggle(
-        panel.is_visible().unwrap_or(false),
-        gate.awaiting_layout.load(Ordering::SeqCst),
-    ) {
-        PanelToggle::Hide => {
-            conceal_panel(&panel, gate.inner())?;
-            Ok(PanelVisibility::Hidden)
-        }
-        PanelToggle::Show => {
-            begin_reveal(&window, &panel, &app, gate.inner())?;
-            Ok(PanelVisibility::Shown)
-        }
+    apply_panel_toggle(&window, &panel, &app, gate.inner())
+}
+
+/// Toggles the usage panel from the pet context menu's panel item.
+///
+/// Menu events arrive on the app-wide handler with no invoking window, so the
+/// overlay is looked up by label — it is the only window the menu pops from
+/// (`show_pet_menu` is overlay-authorized). Failures are logged and swallowed:
+/// a menu click has no caller left to report to.
+pub fn toggle_panel_from_menu(app: &AppHandle) {
+    let (Some(overlay), Some(panel)) = (
+        app.get_webview_window("overlay"),
+        app.get_webview_window("panel"),
+    ) else {
+        eprintln!("pet menu could not toggle the panel: window missing");
+        return;
+    };
+    let gate = app.state::<PanelLayoutGate>();
+    if apply_panel_toggle(&overlay, &panel, app, gate.inner()).is_err() {
+        eprintln!("pet menu could not toggle the panel");
     }
+}
+
+/// Pops the native pet context menu at the cursor.
+///
+/// The menu is rebuilt per right-click so the panel item's label always
+/// reflects the toggle its click would perform. Item clicks arrive through the
+/// app-wide menu handler in `lib.rs`; the renderer only ever requests the
+/// popup, so the overlay's command authority stays read-only plus gestures.
+#[tauri::command]
+pub fn show_pet_menu(
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+    gate: State<'_, PanelLayoutGate>,
+) -> Result<(), IpcError> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+
+    authorize(&window, NativeCommand::ShowPetMenu)?;
+    // A missing panel window must not take "Hide pet" and "Quit CacheBite"
+    // down with it — those items are exactly why the menu exists. The label
+    // falls back to the Show toggle; a click then goes through
+    // `toggle_panel_from_menu`, which logs its own lookup failure.
+    let panel_label = app
+        .get_webview_window("panel")
+        .map(|panel| pet_menu_panel_label(pending_panel_toggle(&panel, gate.inner())))
+        .unwrap_or(pet_menu_panel_label(PanelToggle::Show));
+    let panel_item = MenuItem::with_id(
+        &app,
+        PET_MENU_TOGGLE_PANEL_ID,
+        panel_label,
+        true,
+        None::<&str>,
+    )
+    .map_err(|_| IpcError::MenuUnavailable)?;
+    // The accelerator is display-only here — the combination itself is claimed
+    // globally at startup (`register_default_hotkey`). Reusing the constant
+    // keeps the hint from drifting away from the real binding.
+    let hide_item = MenuItem::with_id(
+        &app,
+        PET_MENU_HIDE_PET_ID,
+        "Hide pet",
+        true,
+        Some(DEFAULT_HIDE_SHOW_HOTKEY),
+    )
+    .map_err(|_| IpcError::MenuUnavailable)?;
+    let separator = PredefinedMenuItem::separator(&app).map_err(|_| IpcError::MenuUnavailable)?;
+    let quit_item = MenuItem::with_id(&app, PET_MENU_QUIT_ID, "Quit CacheBite", true, None::<&str>)
+        .map_err(|_| IpcError::MenuUnavailable)?;
+    let menu = Menu::with_items(&app, &[&panel_item, &hide_item, &separator, &quit_item])
+        .map_err(|_| IpcError::MenuUnavailable)?;
+    window
+        .popup_menu(&menu)
+        .map_err(|_| IpcError::MenuUnavailable)
 }
 
 pub(crate) fn position_panel(
@@ -603,6 +710,17 @@ pub fn emit_provider_states(app: &AppHandle, service: &RefreshService) {
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod pet_menu_copy_tests {
+    use super::{pet_menu_panel_label, PanelToggle};
+
+    #[test]
+    fn panel_label_matches_the_toggle_the_click_performs() {
+        assert_eq!(pet_menu_panel_label(PanelToggle::Hide), "Hide usage panel");
+        assert_eq!(pet_menu_panel_label(PanelToggle::Show), "Show usage panel");
     }
 }
 

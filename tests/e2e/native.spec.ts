@@ -259,6 +259,14 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
       status: 'rejected',
       reason: 'forbidden',
     });
+
+    // The context menu is likewise the pet's gesture. Only the forbidden
+    // direction is exercised: invoking it from the overlay would pop a real
+    // native menu and park the run inside its modal loop.
+    expect(await invokeFromCurrentWindow('show_pet_menu')).toEqual({
+      status: 'rejected',
+      reason: 'forbidden',
+    });
   });
 
   it('authorizes the update commands only from the panel window', async () => {

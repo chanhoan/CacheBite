@@ -3,7 +3,7 @@
   import SplitUsageRing from './SplitUsageRing.svelte';
   import SystemBadge from './SystemBadge.svelte';
 
-  /** @type {{ model: import('./models').PetOverlayViewModel; onPointerDown?: (event: PointerEvent) => void; onPointerMove?: (event: PointerEvent) => void; onPointerUp?: (event: PointerEvent) => void; onPointerCancel?: (event: PointerEvent) => void; onToggle?: () => void }} */
+  /** @type {{ model: import('./models').PetOverlayViewModel; onPointerDown?: (event: PointerEvent) => void; onPointerMove?: (event: PointerEvent) => void; onPointerUp?: (event: PointerEvent) => void; onPointerCancel?: (event: PointerEvent) => void; onToggle?: () => void; onShowMenu?: () => void }} */
   let {
     model,
     onPointerDown = () => {},
@@ -11,7 +11,15 @@
     onPointerUp = () => {},
     onPointerCancel = () => {},
     onToggle = () => {},
+    onShowMenu = () => {},
   } = $props();
+  /** @param {MouseEvent} event */
+  const contextMenu = (event) => {
+    // The webview's own context menu is never wanted over the pet; the native
+    // popup the gateway requests replaces it.
+    event.preventDefault();
+    onShowMenu();
+  };
   /** @param {KeyboardEvent} event */
   const keydown = (event) => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -45,13 +53,14 @@
     data-testid="overlay-pointer-surface"
     role="button"
     tabindex="0"
-    aria-label="Move pet; double-click or press Enter to show or hide usage"
+    aria-label="Move pet; double-click or press Enter to show or hide usage; right-click for the menu"
     style="clip-path: circle(50% at 50% 50%)"
     onpointerdown={onPointerDown}
     onpointermove={onPointerMove}
     onpointerup={onPointerUp}
     onpointercancel={onPointerCancel}
     ondblclick={() => onToggle()}
+    oncontextmenu={contextMenu}
     onkeydown={keydown}
   ></div>
 </section>

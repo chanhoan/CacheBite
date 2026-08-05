@@ -41,11 +41,40 @@ describe('PetOverlay', () => {
     expect(screen.getByText('WK').getAttribute('font-size')).toBe('9');
     expect(screen.getByText('WK').getAttribute('y')).toBe('104');
     const surface = screen.getByRole('button', {
-      name: 'Move pet; double-click or press Enter to show or hide usage',
+      name: 'Move pet; double-click or press Enter to show or hide usage; right-click for the menu',
     });
     expect(surface.getAttribute('data-testid')).toBe('overlay-pointer-surface');
     expect(surface.style.clipPath).toBe('circle(50% at 50% 50%)');
     expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('requests the native menu on right-click instead of the browser menu', async () => {
+    const onShowMenu = vi.fn();
+    render(PetOverlay, {
+      props: {
+        model: {
+          system: 'active',
+          stale: false,
+          session: { usedPercent: 74, severity: 'warn' },
+          weekly: { usedPercent: 93, severity: 'critical' },
+          animation,
+          petName: 'Geometric pet',
+          size: 160,
+        },
+        onShowMenu,
+      },
+    });
+
+    const surface = screen.getByTestId('overlay-pointer-surface');
+    const contextMenu = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+    });
+    surface.dispatchEvent(contextMenu);
+
+    expect(onShowMenu).toHaveBeenCalledOnce();
+    // The webview's own context menu must never appear over the pet.
+    expect(contextMenu.defaultPrevented).toBe(true);
   });
 
   it('routes both the double-click and the Enter key to a single toggle request', async () => {
