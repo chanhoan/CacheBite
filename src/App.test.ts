@@ -1096,7 +1096,7 @@ describe('application composition root', () => {
     expect(gateway.checkForUpdate).not.toHaveBeenCalled();
   });
 
-  it('keeps a failed update in the Settings status line and retries with a check', async () => {
+  it('keeps update controls hidden in Settings after a failed check', async () => {
     const { gateway, emitUpdate } = await renderPanelWithUpdates();
 
     emitUpdate({
@@ -1105,17 +1105,19 @@ describe('application composition root', () => {
     });
 
     await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
-    expect(screen.getByText('Update failed')).toBeTruthy();
+    expect(screen.queryByText('Update available')).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Install and restart' }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Check for updates' }),
+    ).toBeNull();
 
-    await fireEvent.click(
-      screen.getByRole('button', { name: 'Check for updates' }),
-    );
-
-    expect(gateway.checkForUpdate).toHaveBeenCalledTimes(1);
+    expect(gateway.checkForUpdate).not.toHaveBeenCalled();
     expect(gateway.installUpdate).not.toHaveBeenCalled();
   });
 
-  it('keeps downloading and installing states in the Settings status line', async () => {
+  it('keeps update controls hidden while downloading and installing', async () => {
     const { emitUpdate } = await renderPanelWithUpdates();
 
     emitUpdate({
@@ -1124,13 +1126,19 @@ describe('application composition root', () => {
     });
 
     await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
-    expect(screen.getByText('Downloading…')).toBeTruthy();
+    expect(screen.queryByText('Downloading…')).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Install and restart' }),
+    ).toBeNull();
 
     emitUpdate({
       currentVersion: '0.1.0-test',
       status: { status: 'installing', version: '0.1.0-beta.5' },
     });
 
-    await waitFor(() => expect(screen.getByText('Installing…')).toBeTruthy());
+    await waitFor(() => expect(screen.queryByText('Installing…')).toBeNull());
+    expect(
+      screen.queryByRole('button', { name: 'Install and restart' }),
+    ).toBeNull();
   });
 });

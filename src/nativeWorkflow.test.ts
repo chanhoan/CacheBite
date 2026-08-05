@@ -288,11 +288,13 @@ describe('updater release automation', () => {
     expect(workflow).toContain('CACHEBITE_E2E_UPDATE: failed');
   });
 
-  it('asserts the failed-update retry actually runs another check', () => {
-    // Asserting the button is merely enabled is what let the no-op retry ship.
-    expect(nativeSpec).toContain('get_update_probe_count');
+  it('keeps failed updates out of Settings while preserving the failed smoke path', () => {
+    expect(nativeSpec).toContain("if (expectedUpdate === 'failed')");
     expect(nativeSpec).toContain(
-      'retries a failed update from Settings by running another check',
+      "await expect($('.update-available-row')).not.toExist();",
+    );
+    expect(nativeSpec).toContain(
+      "await expect($('button=Check for updates')).not.toExist();",
     );
   });
 

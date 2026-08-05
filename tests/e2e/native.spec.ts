@@ -371,15 +371,6 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
     }
 
     if (expectedUpdate === 'failed') {
-      const readProbeCount = async () => {
-        const result = await invokeFromCurrentWindow<number>(
-          'get_update_probe_count',
-        );
-        if (result.status !== 'resolved')
-          throw new Error(`probe count was rejected: ${result.reason}`);
-        return result.value;
-      };
-
       it('reports a recoverable failure without blocking the panel', async () => {
         await openPanel();
         await settleUpdateStatus('failed');
@@ -391,26 +382,10 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
         await expect($('section[aria-label="Usage panel"]')).toExist();
         await $('button=Refresh now').click();
         await expect($('section[aria-label="Usage panel"]')).toExist();
-      });
-
-      it('retries a failed update from Settings by running another check', async () => {
-        await openPanel();
-        await settleUpdateStatus('failed');
         await $('button=Settings').click();
-
-        const before = await readProbeCount();
-
-        const settingsSection = $(
-          'section[aria-labelledby="settings-heading"]',
-        );
-        expect(await settingsSection.getText()).toContain('Update failed');
-        await $('button=Check for updates').click();
-
-        await browser.waitUntil(async () => (await readProbeCount()) > before, {
-          timeout: 15_000,
-          interval: 200,
-          timeoutMsg: 'Check for updates did not run another check',
-        });
+        await expect($('.update-available-row')).not.toExist();
+        await expect($('button=Install and restart')).not.toExist();
+        await expect($('button=Check for updates')).not.toExist();
       });
     }
 
