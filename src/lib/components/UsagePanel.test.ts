@@ -173,6 +173,58 @@ describe('UsagePanel', () => {
     expect(onSettings).toHaveBeenCalledTimes(1);
   });
 
+  it('announces an available settings update with a decorative dot', () => {
+    render(UsagePanel, {
+      props: {
+        providers: bothProviders('active'),
+        selected: 'claude',
+        primary: 'claude',
+        refreshing: false,
+        nowMs: NOW,
+        updateAvailable: true,
+      },
+    });
+
+    expect(screen.getByTestId('settings-update-dot')).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'Settings, update available' }),
+    ).toBeTruthy();
+  });
+
+  it('keeps the update dot inside the visible settings label wrapper', () => {
+    const { container } = render(UsagePanel, {
+      props: {
+        providers: bothProviders('active'),
+        selected: 'claude',
+        primary: 'claude',
+        refreshing: false,
+        nowMs: NOW,
+        updateAvailable: true,
+      },
+    });
+
+    const dot = screen.getByTestId('settings-update-dot');
+    const label = container.querySelector('.settings-label');
+
+    expect(label).toBeTruthy();
+    expect(label?.contains(dot)).toBe(true);
+  });
+
+  it('keeps the default settings control queryable without an update dot', () => {
+    render(UsagePanel, {
+      props: {
+        providers: bothProviders('active'),
+        selected: 'claude',
+        primary: 'claude',
+        refreshing: false,
+        nowMs: NOW,
+      },
+    });
+
+    expect(screen.queryByTestId('settings-update-dot')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy();
+  });
+
   it.each([
     ['auth_required' as const, 'Sign in to the Claude CLI: claude login'],
     ['unavailable' as const, 'The Claude CLI is not installed'],

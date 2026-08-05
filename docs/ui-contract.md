@@ -204,6 +204,43 @@ ProviderUiSnapshot = ProviderUsageSnapshot +
 - always-on-top을 거부하는 컴포지터에서 패널이 다른 창 뒤로 밀린 경우, 더블클릭 한 번은 그것을 **숨긴다**(전면화가 아니다). 복구는 한 번 더 더블클릭하는 것이며, 이때 표시 경로가 전면화와 포커스를 함께 수행한다. 토글의 예측 가능성을 포커스 기반 분기보다 우선한 결과다.
 - 푸터의 "종료"는 CacheBite 프로세스를 종료한다(`app.exit(0)`). 패널 숨김과 혼용하지 않는다.
 
+## 5.1 업데이트 알림 (`UpdateNotice`)
+
+새 릴리스가 있으면 탭 위, `UsagePanel` 앞에 배너가 붙는다. 배너 유무는 패널 높이를 바꾸므로 기존 `ResizeObserver` → `resize_panel` 경로가 그대로 처리한다. `resizePanel`을 직접 호출하지 않는다 — 그 명령은 패널 노출 게이트를 겸하므로 방금 닫은 패널을 다시 열 수 있다.
+
+```text
+┌──────────────────────────────────┐
+│ ▲ Update available — 0.1.0-b5    │  ← role="status" aria-live="polite"
+│   [Install and restart] [Later]  │
+├──────────────────────────────────┤
+│ [Claude ★] [Codex]  탭            │
+│ ...                              │
+└──────────────────────────────────┘
+```
+
+`updateViewModel(state, dismissedVersion)`가 두 화면(배너와 설정)에 필요한 모든 문자열을 만든다:
+
+| status | headline | detail | primary (action) | dismissible | settingsLine |
+|---|---|---|---|---|---|
+| `idle` | — | — | — | — | `Not checked yet` |
+| `checking` | — | — | — | — | `Checking…` |
+| `up_to_date` | — | — | — | — | `Up to date` |
+| `available` | `Update available — {version}` | 잘라낸 릴리스 노트 | `Install and restart` (`install`) | 예 | `Update available — {version}` |
+| `downloading` | `Downloading update` | `{pct}%`, `total`이 null이면 `Downloading…` | `Install and restart` (`install`, 비활성) | 아니오 | `Downloading…` |
+| `installing` | `Installing {version}…` | `CacheBite will restart.` | (`install`, 비활성) | 아니오 | `Installing…` |
+| `failed` | `Update failed` | 사유별 한 문장 | `Try again` (**`check`**) | 예 | `Update failed` |
+
+규칙:
+
+- **`primaryAction`이 어느 명령을 보낼지 정한다.** `failed`의 `Try again`은 반드시 `check`다 — 네이티브 `UpdateService::install`은 상태가 `available`이 아니면 즉시 반환하므로, 재시도를 `installUpdate`에 연결하면 버튼이 아무 일도 하지 않는다.
+- `visible`은 `idle`/`checking`/`up_to_date`에서 `false`다.
+- **해제(dismiss)는 두 종류이며 서로 독립이다.** `available`은 버전으로 키를 잡으므로(`dismissedVersion === version`) 더 새 릴리스는 다시 제안된다. `failed`는 키로 삼을 버전이 없으므로 별도의 세션 플래그(`failureDismissed`)를 쓰고, 상태가 `failed`를 벗어나는 순간 호출자가 지운다. 따라서 재시도가 또 실패하면 배너는 다시 나타난다.
+- `downloading`/`installing`은 **항상** 보인다. 어느 해제도 진행 중인 작업을 가릴 수 없다.
+- 두 해제 모두 렌더러 세션 상태다. 재시작하면 다시 나타난다. 설정 화면은 언제나 참값을 보여주므로 영구히 숨겨지는 정보는 없다.
+- 실패 문장에는 URL·호스트·경로가 들어가지 않는다. 네이티브가 사유를 타입으로 분류하므로 렌더러가 전송 계층 세부를 되풀이할 이유가 없다.
+- 설정 화면에는 읽기 전용 `Version` 행과 `Updates` 상태 줄, `Check for updates` 버튼이 있다. 이 버튼만 자동 주기(15분 floor)를 무시한다.
+- 오버레이(펫)에는 업데이트 표시가 없다. 말풍선도, OS 알림도 쓰지 않는다.
+
 ## 6. GIF 에셋 계약 (상태별)
 
 기존 에셋 계약("첫 구현은 idle 하나 필수")을 유지하면서 선택 상태 키를 표준화한다.

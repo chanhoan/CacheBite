@@ -13,6 +13,7 @@ const settings = {
 
 describe('SettingsPanel', () => {
   afterEach(cleanup);
+
   it('emits immutable setting changes', async () => {
     const onChange = vi.fn();
     const onThemeChange = vi.fn();
@@ -28,6 +29,7 @@ describe('SettingsPanel', () => {
         onThemeChange,
       },
     });
+
     await fireEvent.change(screen.getByLabelText('Appearance'), {
       target: { value: 'dark' },
     });
@@ -42,6 +44,7 @@ describe('SettingsPanel', () => {
     await fireEvent.click(
       screen.getByLabelText('Secondary provider notifications'),
     );
+
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({ primaryProvider: 'codex' }),
     );
@@ -110,5 +113,131 @@ describe('SettingsPanel', () => {
     });
 
     expect(screen.queryByText(conflictMessage)).toBeNull();
+  });
+
+  it('reports the running version and the update status', () => {
+    render(SettingsPanel, {
+      props: {
+        settings,
+        pets: [{ id: 'tabby', displayName: 'Tabby' }],
+        currentVersion: '0.1.0-beta.4',
+        updateLine: 'Up to date',
+      },
+    });
+
+    expect(screen.queryByText('0.1.0-beta.4')).not.toBeNull();
+    expect(screen.queryByText('Up to date')).not.toBeNull();
+  });
+
+  it('shows the available update row before Appearance and installs once per click', async () => {
+    const onInstallUpdate = vi.fn();
+    const { container } = render(SettingsPanel, {
+      props: {
+        settings,
+        pets: [{ id: 'tabby', displayName: 'Tabby' }],
+        availableUpdateVersion: '0.1.0-beta.5',
+        onInstallUpdate,
+      },
+    });
+
+    const updateRow = container.querySelector('.update-available-row');
+    const appearanceField = screen.getByText('Appearance');
+
+    if (!updateRow) {
+      throw new Error('Expected update row to exist');
+    }
+    expect(
+      updateRow.compareDocumentPosition(appearanceField) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByText('Update available')).toBeTruthy();
+    expect(screen.queryByText('Later')).toBeNull();
+    expect(screen.queryByText('Fixes a crash.')).toBeNull();
+
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Install and restart' }),
+    );
+
+    expect(onInstallUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides the available update row when no version is available', () => {
+    render(SettingsPanel, {
+      props: {
+        settings,
+        pets: [{ id: 'tabby', displayName: 'Tabby' }],
+        availableUpdateVersion: null,
+      },
+    });
+
+    expect(
+      screen.queryByRole('button', { name: 'Install and restart' }),
+    ).toBeNull();
+    expect(screen.queryByText('Update available')).toBeNull();
+  });
+
+  it('disables the install button while the update action is busy', () => {
+    render(SettingsPanel, {
+      props: {
+        settings,
+        pets: [{ id: 'tabby', displayName: 'Tabby' }],
+        availableUpdateVersion: '0.1.0-beta.5',
+        updateBusy: true,
+      },
+    });
+
+    expect(
+      screen
+        .getByRole('button', { name: 'Install and restart' })
+        .hasAttribute('disabled'),
+    ).toBe(true);
+  });
+
+  it('invokes onCheckUpdate once per click', async () => {
+    const onCheckUpdate = vi.fn();
+    render(SettingsPanel, {
+      props: {
+        settings,
+        pets: [{ id: 'tabby', displayName: 'Tabby' }],
+        onCheckUpdate,
+      },
+    });
+
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Check for updates' }),
+    );
+
+    expect(onCheckUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables the manual check while one is already in flight', () => {
+    render(SettingsPanel, {
+      props: {
+        settings,
+        pets: [{ id: 'tabby', displayName: 'Tabby' }],
+        updateBusy: true,
+        updateLine: 'Checking…',
+      },
+    });
+
+    expect(
+      screen
+        .getByRole('button', { name: 'Check for updates' })
+        .hasAttribute('disabled'),
+    ).toBe(true);
+  });
+
+  it('keeps the version row read-only', () => {
+    render(SettingsPanel, {
+      props: {
+        settings,
+        pets: [{ id: 'tabby', displayName: 'Tabby' }],
+        currentVersion: '0.1.0-beta.4',
+      },
+    });
+
+    // The version comes from the bundle, which CI derives from the git tag.
+    // An editable field here would invite a value the updater cannot honour.
+    expect(screen.queryByRole('textbox')).toBeNull();
   });
 });

@@ -1,4 +1,8 @@
 const expectedMode = process.env.CACHEBITE_EXPECTED_COLLECTOR_MODE;
+// Selects which deterministic answer `update::FixtureFeed` serves. Only
+// meaningful in the fixture composition; the production smoke runs the real
+// feed and must never assert a specific update status.
+const expectedUpdate = process.env.CACHEBITE_E2E_UPDATE ?? 'none';
 
 type ProviderStates = {
   claude: { unavailable_reason: string | null; snapshot: unknown | null };
@@ -22,6 +26,11 @@ type NativeWindowState = {
 type NativeWindowStates =
   | NativeWindowState[]
   | Record<string, NativeWindowState>;
+
+type NativeUpdateState = {
+  currentVersion: string;
+  status: { status: string; version?: string; reason?: string };
+};
 
 type InvokeResult<T> =
   | { status: 'resolved'; value: T }
@@ -245,6 +254,174 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
       reason: 'forbidden',
     });
   });
+
+  it('authorizes the update commands only from the panel window', async () => {
+    await switchToCacheBiteWindow('overlay');
+    expect(await invokeFromCurrentWindow('get_update_state')).toEqual({
+      status: 'rejected',
+      reason: 'forbidden',
+    });
+    expect(await invokeFromCurrentWindow('check_for_update')).toEqual({
+      status: 'rejected',
+      reason: 'forbidden',
+    });
+    expect(await invokeFromCurrentWindow('install_update')).toEqual({
+      status: 'rejected',
+      reason: 'forbidden',
+    });
+  });
+
+  if (expectedMode === 'fixture') {
+    const openPanel = async () => {
+      await switchToCacheBiteWindow('overlay');
+      await $(
+        'main[data-window-label="overlay"] [data-testid="overlay-pointer-surface"]',
+      ).doubleClick();
+      await switchToCacheBiteWindow('panel');
+    };
+
+    const readUpdateState = async () => {
+      const result =
+        await invokeFromCurrentWindow<NativeUpdateState>('get_update_state');
+      if (result.status !== 'resolved')
+        throw new Error(`get_update_state was rejected: ${result.reason}`);
+      return result.value;
+    };
+
+    const settleUpdateStatus = async (expected: string) => {
+      let seen = '';
+      await browser.waitUntil(
+        async () => {
+          seen = (await readUpdateState()).status.status;
+          return seen === expected;
+        },
+        {
+          timeout: 15_000,
+          interval: 200,
+          timeoutMsg: () =>
+            `update status settled on ${seen}, wanted ${expected}`,
+        },
+      );
+    };
+
+    it('reports the running version through the panel', async () => {
+      await openPanel();
+      // The bundle version is the updater's `current_version`; an empty one
+      // would make every comparison meaningless.
+      expect((await readUpdateState()).currentVersion).not.toBe('');
+    });
+
+    if (expectedUpdate === 'available') {
+      it('routes the available update through Settings', async () => {
+        await openPanel();
+        // Revealing the panel is itself a check trigger, so the state settles
+        // without any manual action.
+        await settleUpdateStatus('available');
+
+        const settingsButton = $(
+          'button[aria-label="Settings, update available"]',
+        );
+        await expect(settingsButton).toExist();
+        await expect(settingsButton).toHaveAttribute(
+          'aria-label',
+          'Settings, update available',
+        );
+        await expect($('[data-testid="settings-update-dot"]')).toExist();
+
+        await settingsButton.click();
+
+        const settingsSection = $(
+          'section[aria-labelledby="settings-heading"]',
+        );
+        await expect(settingsSection).toExist();
+        const availableUpdateText = 'Update available';
+        await expect($('span=' + availableUpdateText)).toHaveText(
+          availableUpdateText,
+        );
+        await expect($('button=Install and restart')).toBeEnabled();
+        await expect($('button=Later')).not.toExist();
+      });
+
+      it('spends only one check when the panel is reopened inside the floor', async () => {
+        await openPanel();
+        await settleUpdateStatus('available');
+
+        const first = await invokeFromCurrentWindow<number>(
+          'get_update_probe_count',
+        );
+        if (first.status !== 'resolved')
+          throw new Error(`probe count was rejected: ${first.reason}`);
+
+        await hidePanelFromPanelWindow();
+        await openPanel();
+        await settleUpdateStatus('available');
+
+        const second = await invokeFromCurrentWindow<number>(
+          'get_update_probe_count',
+        );
+        if (second.status !== 'resolved')
+          throw new Error(`probe count was rejected: ${second.reason}`);
+
+        // The second reveal falls inside PANEL_OPEN_CHECK_FLOOR (15 minutes).
+        expect(second.value).toBe(first.value);
+      });
+    }
+
+    if (expectedUpdate === 'failed') {
+      const readProbeCount = async () => {
+        const result = await invokeFromCurrentWindow<number>(
+          'get_update_probe_count',
+        );
+        if (result.status !== 'resolved')
+          throw new Error(`probe count was rejected: ${result.reason}`);
+        return result.value;
+      };
+
+      it('reports a recoverable failure without blocking the panel', async () => {
+        await openPanel();
+        await settleUpdateStatus('failed');
+
+        await expect($('button=Settings')).toExist();
+        await expect($('[data-testid="settings-update-dot"]')).not.toExist();
+
+        // Usage collection is untouched by a failed update check.
+        await expect($('section[aria-label="Usage panel"]')).toExist();
+        await $('button=Refresh now').click();
+        await expect($('section[aria-label="Usage panel"]')).toExist();
+      });
+
+      it('retries a failed update from Settings by running another check', async () => {
+        await openPanel();
+        await settleUpdateStatus('failed');
+        await $('button=Settings').click();
+
+        const before = await readProbeCount();
+
+        const settingsSection = $(
+          'section[aria-labelledby="settings-heading"]',
+        );
+        expect(await settingsSection.getText()).toContain('Update failed');
+        await $('button=Check for updates').click();
+
+        await browser.waitUntil(async () => (await readProbeCount()) > before, {
+          timeout: 15_000,
+          interval: 200,
+          timeoutMsg: 'Check for updates did not run another check',
+        });
+      });
+    }
+
+    if (expectedUpdate === 'none') {
+      it('shows no banner and reports up to date', async () => {
+        await openPanel();
+        await settleUpdateStatus('up_to_date');
+
+        await expect(
+          $('section[role="status"][aria-live="polite"]'),
+        ).not.toExist();
+      });
+    }
+  }
 
   if (expectedMode === 'production') {
     it('shows credential-free production provider states after panel hydration', async () => {

@@ -23,8 +23,20 @@ shasum -a 256 --ignore-missing --check SHA256SUMS.txt  # macOS
 # compare against the matching line in SHA256SUMS.txt
 ```
 
-**There is no auto-updater.** Moving to a newer beta means installing it over
-the old build.
+CacheBite checks for a newer signed release and offers it in the panel with
+**Install** and **Later**. Installing downloads the build for your platform,
+verifies its signature, installs it over the current one, and restarts
+CacheBite. Your settings, history and pets are kept.
+
+Builds up to and including `v0.1.0-beta.3` predate the updater and cannot
+update themselves — install the first updater-enabled release by hand once, and
+later ones arrive in-app.
+
+In-app installation is verified on Windows. On macOS and Linux the artifacts
+are published and signed and the app will attempt the install, but replacing an
+unsigned macOS bundle and rewriting a running AppImage are not yet confirmed on
+real hardware. If it fails there, the banner says so and your existing build
+keeps running — install by hand and report it.
 
 ## What CacheBite needs to show data
 
@@ -152,7 +164,8 @@ and we will find another way to reproduce it.
 ## Known limits at this stage
 
 - No code signing on any platform.
-- No auto-update.
+- In-app update is verified on Windows only; macOS and Linux are published but
+  unverified.
 - Fullscreen auto-hide works on Windows only. macOS and Linux report the
   capability as unavailable, so the pet stays put during a presentation there —
   use the hide/show shortcut instead.

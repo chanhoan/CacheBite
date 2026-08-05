@@ -57,5 +57,16 @@
     ],
     "resources": ["resources/pets/**/*"],
     "createUpdaterArtifacts": false
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcwQ0RGOUY5NkE0OTNBQ0UKUldUT09rbHErZm5OY0pzYllJT0svOFdDQmtTZUJ5Q2dzekNEZ1ZRSFJZeHIzamVjZmozWHhUTlcK",
+      "endpoints": [
+        "https://github.com/chanhoan/CacheBite/releases/download/updater/stable.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

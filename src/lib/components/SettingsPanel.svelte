@@ -1,5 +1,5 @@
 <script>
-  /** @type {{ settings: import('../state/presentation').SettingsStoreState; theme?: import('../state/theme').ThemePreference; autostartAvailable?: boolean; hideShowHotkeyLabel?: string; hideShowHotkeyAvailable?: boolean; pets?: readonly import('../api/gateway').PetSummaryModel[]; onChange?: (settings: import('../state/presentation').SettingsStoreState) => void; onThemeChange?: (theme: import('../state/theme').ThemePreference) => void }} */
+  /** @type {{ settings: import('../state/presentation').SettingsStoreState; theme?: import('../state/theme').ThemePreference; autostartAvailable?: boolean; hideShowHotkeyLabel?: string; hideShowHotkeyAvailable?: boolean; pets?: readonly import('../api/gateway').PetSummaryModel[]; currentVersion?: string; updateLine?: string; availableUpdateVersion?: string | null; updateBusy?: boolean; onChange?: (settings: import('../state/presentation').SettingsStoreState) => void; onThemeChange?: (theme: import('../state/theme').ThemePreference) => void; onCheckUpdate?: () => void; onInstallUpdate?: () => void }} */
   let {
     settings,
     theme = 'system',
@@ -7,8 +7,14 @@
     hideShowHotkeyLabel = 'Ctrl+Shift+H',
     hideShowHotkeyAvailable = true,
     pets = [],
+    currentVersion = '?',
+    updateLine = '',
+    availableUpdateVersion = null,
+    updateBusy = false,
     onChange = () => {},
     onThemeChange = () => {},
+    onCheckUpdate = () => {},
+    onInstallUpdate = () => {},
   } = $props();
 
   // A failed enumeration must still show what is currently selected — an empty
@@ -33,10 +39,26 @@
 
   const hideShowHotkeyHelpId = 'hide-show-hotkey-help';
   const hideShowHotkeyLabelId = 'hide-show-hotkey-label';
+  const versionLabelId = 'app-version-label';
+  const updateLabelId = 'app-update-label';
+  const updateHelpId = 'app-update-help';
 </script>
 
 <section class="settings" aria-labelledby="settings-heading">
   <h2 id="settings-heading" class="settings-heading">Settings</h2>
+  {#if availableUpdateVersion}
+    <div class="field update-available-row">
+      <span>Update available</span>
+      <button
+        class="install-update-action"
+        type="button"
+        disabled={updateBusy}
+        onclick={() => onInstallUpdate()}
+      >
+        Install and restart
+      </button>
+    </div>
+  {/if}
   <label class="field"
     >Appearance <select
       value={theme}
@@ -106,8 +128,26 @@
         onChange({ ...settings, startAtLogin: event.currentTarget.checked })}
     /><span>Start at login</span></label
   >
+  <!-- Read-only: the running version comes from the bundle, which CI derives
+       from the git tag. There is nothing here for the user to change. -->
+  <div class="field">
+    <span id={versionLabelId}>Version</span>
+    <kbd class="shortcut" aria-labelledby={versionLabelId}>{currentVersion}</kbd
+    >
+  </div>
+  <div class="field">
+    <span id={updateLabelId}>Updates</span>
+    <button
+      class="ghost-action"
+      type="button"
+      disabled={updateBusy}
+      aria-describedby={updateHelpId}
+      onclick={() => onCheckUpdate()}>Check for updates</button
+    >
+  </div>
+  <p id={updateHelpId} class="field-help">{updateLine}</p>
   <!-- Read-only: the binding is a fixed native constant, so there is no form
-       control here and no `onChange` to fire. -->
+       control here and no onChange to fire. -->
   <div class="field">
     <span id={hideShowHotkeyLabelId}>Hide/show shortcut</span>
     <kbd
@@ -164,6 +204,9 @@
     color: var(--color-text-muted);
     font-size: 0.8125rem;
   }
+  .update-available-row {
+    align-items: center;
+  }
   select {
     padding: 0.35rem 1.75rem 0.35rem 0.5rem;
     border: 1px solid var(--color-border);
@@ -182,6 +225,45 @@
     color: var(--color-text);
     font: inherit;
     white-space: nowrap;
+  }
+  .ghost-action {
+    flex: none;
+    min-height: 1.875rem;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: 0.4rem;
+    background: var(--color-surface);
+    color: var(--color-text);
+    font: inherit;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .install-update-action {
+    flex: none;
+    min-height: 1.875rem;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--color-text);
+    border-radius: 0.5rem;
+    background: var(--color-text);
+    color: var(--color-surface);
+    font: inherit;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .ghost-action:disabled,
+  .install-update-action:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .ghost-action:not(:disabled):hover,
+  .install-update-action:not(:disabled):hover,
+  .ghost-action:focus-visible,
+  .install-update-action:focus-visible {
+    opacity: 0.88;
   }
   .field-help {
     margin: 0;
