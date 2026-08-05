@@ -13,9 +13,9 @@ use crate::{
         PetSummary, Settings, SettingsRepository,
     },
     window::{
-        command_allowed, panel_toggle, pet_menu_panel_label, CapabilityDiagnostic,
-        HideShowHotkeyCapability, NativeCommand, PanelToggle, PlatformCapabilities,
-        DEFAULT_HIDE_SHOW_HOTKEY, PET_MENU_HIDE_PET_ID, PET_MENU_QUIT_ID, PET_MENU_TOGGLE_PANEL_ID,
+        command_allowed, panel_toggle, CapabilityDiagnostic, HideShowHotkeyCapability,
+        NativeCommand, PanelToggle, PlatformCapabilities, DEFAULT_HIDE_SHOW_HOTKEY,
+        PET_MENU_HIDE_PET_ID, PET_MENU_QUIT_ID, PET_MENU_TOGGLE_PANEL_ID,
     },
 };
 use serde::Serialize;
@@ -412,6 +412,20 @@ fn begin_reveal(
     Ok(())
 }
 
+/// The label the pet menu's panel item must carry for the toggle its click
+/// would perform.
+///
+/// UI copy lives here at the IPC boundary, not in `window/` — that module is
+/// pure policy (ids, dispatch, geometry) and must stay copy-free so wording
+/// changes never touch policy tests. Derived from [`PanelToggle`] so the menu
+/// never promises the opposite of what the click does.
+fn pet_menu_panel_label(toggle: PanelToggle) -> &'static str {
+    match toggle {
+        PanelToggle::Hide => "Hide usage panel",
+        PanelToggle::Show => "Show usage panel",
+    }
+}
+
 /// The toggle the next panel gesture would perform, from the panel's real
 /// visibility plus any pending reveal — the two signals `panel_toggle` needs.
 fn pending_panel_toggle(panel: &tauri::WebviewWindow, gate: &PanelLayoutGate) -> PanelToggle {
@@ -684,6 +698,17 @@ pub fn emit_provider_states(app: &AppHandle, service: &RefreshService) {
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod pet_menu_copy_tests {
+    use super::{pet_menu_panel_label, PanelToggle};
+
+    #[test]
+    fn panel_label_matches_the_toggle_the_click_performs() {
+        assert_eq!(pet_menu_panel_label(PanelToggle::Hide), "Hide usage panel");
+        assert_eq!(pet_menu_panel_label(PanelToggle::Show), "Show usage panel");
     }
 }
 

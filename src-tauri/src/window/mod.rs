@@ -165,17 +165,6 @@ pub fn pet_menu_action(menu_id: &str) -> Option<PetMenuAction> {
     }
 }
 
-/// The label the panel item must carry for the toggle the click would perform.
-///
-/// Derived from [`panel_toggle`] so the menu never promises the opposite of
-/// what the click does — a pending reveal already counts as visible there.
-pub fn pet_menu_panel_label(toggle: PanelToggle) -> &'static str {
-    match toggle {
-        PanelToggle::Hide => "Hide usage panel",
-        PanelToggle::Show => "Show usage panel",
-    }
-}
-
 /// The one hide/show combination CacheBite claims. `CommandOrControl` is Tauri's
 /// cross-platform token: Cmd on macOS, Ctrl on Windows and Linux.
 ///

@@ -387,12 +387,6 @@ fn pet_menu_ids_map_to_their_actions_and_unknown_ids_to_none() {
 }
 
 #[test]
-fn pet_menu_panel_label_matches_the_toggle_the_click_performs() {
-    assert_eq!(pet_menu_panel_label(PanelToggle::Hide), "Hide usage panel");
-    assert_eq!(pet_menu_panel_label(PanelToggle::Show), "Show usage panel");
-}
-
-#[test]
 fn a_visible_or_pending_panel_is_hidden_and_a_hidden_one_is_shown() {
     assert_eq!(panel_toggle(false, false), PanelToggle::Show);
     assert_eq!(panel_toggle(true, false), PanelToggle::Hide);
