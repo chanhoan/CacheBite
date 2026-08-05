@@ -1167,7 +1167,10 @@ it('keeps webdriver disabled in production release builds', () => {
   ```
   and extend the secret guard:
   ```yaml
-  ! git grep -nF 'untrusted comment: minisign encrypted secret key'
+  minisign_marker_prefix='untrusted comment: minisign '
+  minisign_marker_suffix='encrypted secret key'
+  private_key_marker="${minisign_marker_prefix}${minisign_marker_suffix}"
+  ! git grep -nF "$private_key_marker"
   ```
 
 ### Task 11: Fixture and E2E coverage

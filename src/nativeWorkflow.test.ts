@@ -299,9 +299,16 @@ describe('updater release automation', () => {
   });
 
   it('guards the minisign private key and self-tests the manifest generator', () => {
-    expect(ciWorkflow).toContain(
-      "! git grep -nF 'untrusted comment: minisign encrypted secret key'",
-    );
+    const privateKeyMarker = [
+      'untrusted comment: minisign ',
+      'encrypted secret key',
+    ].join('');
+
+    expect(ciWorkflow).toContain('minisign_marker_prefix=');
+    expect(ciWorkflow).toContain('minisign_marker_suffix=');
+    expect(ciWorkflow).toContain('private_key_marker=');
+    expect(ciWorkflow).toContain('! git grep -nF "$private_key_marker"');
+    expect(ciWorkflow).not.toContain(privateKeyMarker);
     expect(extractRunCommands(ciWorkflow)).toContain(
       'python3 scripts/build_updater_manifest.py --self-test',
     );
