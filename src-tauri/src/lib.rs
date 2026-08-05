@@ -2,6 +2,7 @@ pub mod collectors;
 pub mod domain;
 pub mod refresh;
 pub mod store;
+pub mod update;
 pub mod window;
 
 use std::{fs, io, path::Path};
@@ -27,6 +28,10 @@ fn apply_invoke_handler(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<t
         refresh::ipc::resize_panel,
         refresh::ipc::hide_panel,
         refresh::ipc::quit,
+        update::ipc::get_update_state,
+        update::ipc::check_for_update,
+        update::ipc::install_update,
+        update::ipc::get_update_probe_count,
     ])
 }
 
@@ -47,6 +52,9 @@ fn apply_invoke_handler(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<t
         refresh::ipc::resize_panel,
         refresh::ipc::hide_panel,
         refresh::ipc::quit,
+        update::ipc::get_update_state,
+        update::ipc::check_for_update,
+        update::ipc::install_update,
     ])
 }
 
@@ -56,6 +64,7 @@ pub fn run() {
     use tauri::Manager;
 
     let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -166,6 +175,32 @@ pub fn run() {
             app.manage(store::PetPackageRepository::new(app.path().app_data_dir()?));
             app.manage(service);
             app.manage(collector_mode);
+            // The updater reads its own version from the bundle, which CI
+            // derives from the git tag. A committed `0.1.0` would compare as
+            // *newer* than every `0.1.0-beta.N` release and silently offer
+            // nothing, so this must never be hardcoded.
+            let current_version = app.package_info().version.to_string();
+            let update_service = if fixture_mode {
+                let feed = Arc::new(update::FixtureFeed::from_env());
+                #[cfg(feature = "webdriver")]
+                app.manage(update::ipc::UpdateProbe(feed.clone()));
+                update::UpdateService::new(feed, current_version)
+            } else {
+                update::UpdateService::new(
+                    Arc::new(update::TauriUpdaterFeed::new(
+                        app.handle().clone(),
+                        current_version.clone(),
+                    )),
+                    current_version,
+                )
+            };
+            // Managed before the emitter and the scheduler for the same reason
+            // as OverlayHideGate: `begin_reveal` resolves this through
+            // `try_state` on the panel-toggle path, and both background tasks
+            // start publishing into it immediately.
+            app.manage(update_service.clone());
+            update::ipc::emit_update_state(app.handle(), &update_service);
+            update_service.spawn_scheduler();
             app.manage(refresh::ipc::PanelLayoutGate::default());
             #[cfg(debug_assertions)]
             eprintln!("[CacheBite:native] setup:ready");

@@ -32,12 +32,17 @@ jobs:
           # unsigned beta should not have to know whether their Mac is Intel or
           # Apple Silicon to pick the right download. Naming a target also moves
           # the bundle under target/<triple>/, hence bundle_root.
+          # `app` is bundled alongside `dmg` because the updater artifact is
+          # the `.app.tar.gz`, which only the `app` target produces. The DMG
+          # stays the thing a human downloads.
           - os: macos-latest
-            bundles: dmg
+            bundles: app,dmg
             target_flag: '--target universal-apple-darwin'
             bundle_root: src-tauri/target/universal-apple-darwin/release/bundle
             artifact: macos-unsigned-validation-dmg
-            paths: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*
+            paths: |
+              src-tauri/target/universal-apple-darwin/release/bundle/dmg/*
+              src-tauri/target/universal-apple-darwin/release/bundle/macos/*.tar.gz*
           - os: ubuntu-latest
             bundles: appimage
             target_flag: ''
@@ -66,7 +71,57 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:ci
       - run: cargo test --manifest-path src-tauri/Cargo.toml --all-features
-      - run: pnpm tauri build --bundles ${{ matrix.bundles }} ${{ matrix.target_flag }}
+      # The git tag is the single source of truth for the shipped version.
+      # `tauri.conf.json` stays at a plain `0.1.0`, which semver ranks *above*
+      # every `0.1.0-beta.N`; shipping that would make the updater refuse
+      # every real release. `bash` on Windows too, or PowerShell eats the heredoc.
+      - name: Derive the release version from the tag
+        shell: bash
+        run: |
+          # This workflow also answers workflow_dispatch, which can run off a
+          # branch. A branch has no release version, so it gets an empty merge
+          # config and no signed updater artifacts rather than a bogus version.
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo '{"bundle":{"createUpdaterArtifacts":false}}' > src-tauri/tauri.release.conf.json
+            cat src-tauri/tauri.release.conf.json
+            exit 0
+          fi
+          VERSION="${GITHUB_REF_NAME#v}"
+          [ -n "$VERSION" ] || { echo "empty tag name"; exit 1; }
+          # WiX rejects a non-numeric pre-release, so the MSI gets a numeric
+          # ProductVersion derived from the trailing number of the pre-release.
+          CORE="${VERSION%%-*}"
+          case "$VERSION" in
+            *-*) WIX_BUILD="$(printf '%s' "$VERSION" | sed -n 's/.*[^0-9]\([0-9][0-9]*\)$/\1/p')" ;;
+            *)   WIX_BUILD=0 ;;
+          esac
+          WIX_BUILD="${WIX_BUILD:-0}"
+          python3 - "$VERSION" "$CORE.$WIX_BUILD" <<'PY' > src-tauri/tauri.release.conf.json
+          import json, sys
+          print(json.dumps({
+              "version": sys.argv[1],
+              "bundle": {
+                  "createUpdaterArtifacts": True,
+                  "windows": {"wix": {"version": sys.argv[2]}},
+              },
+          }, indent=2))
+          PY
+          cat src-tauri/tauri.release.conf.json
+      - run: pnpm tauri build --config src-tauri/tauri.release.conf.json --bundles ${{ matrix.bundles }} ${{ matrix.target_flag }}
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      # `CacheBite.app.tar.gz` is the same name in every release, which makes a
+      # manifest URL ambiguous across versions. Both files move together so the
+      # artifact and its signature stay paired.
+      - name: Name the macOS updater artifact after the release
+        if: runner.os == 'macOS' && github.ref_type == 'tag'
+        shell: bash
+        run: |
+          cd src-tauri/target/universal-apple-darwin/release/bundle/macos
+          BASE="CacheBite_${GITHUB_REF_NAME#v}_universal.app.tar.gz"
+          mv CacheBite.app.tar.gz     "$BASE"
+          mv CacheBite.app.tar.gz.sig "$BASE.sig"
       - name: Create SHA-256 checksums (Unix)
         if: runner.os != 'Windows'
         run: find ${{ matrix.bundle_root }} -type f -print0 | sort -z | xargs -0 shasum -a 256 > SHA256SUMS.txt
@@ -100,7 +155,10 @@ jobs:
       - name: Collect installers
         run: |
           mkdir -p release
-          find artifacts -type f \( -name '*.msi' -o -name '*.exe' -o -name '*.dmg' -o -name '*.AppImage' \) -exec cp {} release/ \;
+          # `.sig` and `.tar.gz` ride along because the updater manifest is
+          # built from them: the signature is read verbatim, and the macOS
+          # archive is the artifact the client actually installs.
+          find artifacts -type f \( -name '*.msi' -o -name '*.exe' -o -name '*.dmg' -o -name '*.AppImage' -o -name '*.sig' -o -name '*.tar.gz' \) -exec cp {} release/ \;
           test -n "$(ls -A release)" || { echo "no installers were produced"; exit 1; }
           # Recomputed here rather than merged from the per-platform files: the
           # Windows job records absolute runner paths, so a merge would ship
@@ -123,8 +181,21 @@ jobs:
 
           Verify a download against `SHA256SUMS.txt` before installing.
 
-          CacheBite has no auto-updater: moving to a newer build means
-          installing it over the old one.
+          CacheBite checks for newer signed releases and offers them in the
+          panel with **Install** and **Later**. Installing downloads the build
+          for your platform, verifies its signature, installs it over the
+          current one, and restarts CacheBite.
+
+          Builds up to and including `v0.1.0-beta.3` predate the updater and
+          cannot update themselves. Install the first updater-enabled release
+          by hand once; later ones arrive in-app.
+
+          In-app installation is verified on Windows. macOS and Linux artifacts
+          are published and signed and the app will attempt the install, but
+          replacing an unsigned macOS bundle and rewriting a running AppImage
+          are not yet confirmed on real hardware. If it fails there the panel
+          says so, your existing build keeps running, and you can install by
+          hand — please report it.
           NOTES
           gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
@@ -149,6 +220,32 @@ jobs:
       - name: Add the macOS universal build targets
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
       - run: pnpm install --frozen-lockfile
+      - name: Derive the release version from the tag
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo '{"bundle":{"createUpdaterArtifacts":false}}' > src-tauri/tauri.release.conf.json
+            cat src-tauri/tauri.release.conf.json
+            exit 0
+          fi
+          VERSION="${GITHUB_REF_NAME#v}"
+          CORE="${VERSION%%-*}"
+          case "$VERSION" in
+            *-*) WIX_BUILD="$(printf '%s' "$VERSION" | sed -n 's/.*[^0-9]\([0-9][0-9]*\)$/\1/p')" ;;
+            *)   WIX_BUILD=0 ;;
+          esac
+          WIX_BUILD="${WIX_BUILD:-0}"
+          python3 - "$VERSION" "$CORE.${WIX_BUILD:-0}" <<'PY' > src-tauri/tauri.release.conf.json
+          import json, sys
+          print(json.dumps({
+              "version": sys.argv[1],
+              "bundle": {
+                  "createUpdaterArtifacts": True,
+                  "windows": {"wix": {"version": sys.argv[2]}},
+              },
+          }, indent=2))
+          PY
+          cat src-tauri/tauri.release.conf.json
       - name: Validate protected signing inputs
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -166,7 +263,11 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: pnpm tauri build --bundles dmg --target universal-apple-darwin
+          # Without these the DMG would carry the committed `0.1.0` while every
+          # other artifact in the release carries the tag version.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build --config src-tauri/tauri.release.conf.json --bundles dmg --target universal-apple-darwin
       - run: find src-tauri/target/universal-apple-darwin/release/bundle/dmg -type f -print0 | sort -z | xargs -0 shasum -a 256 > SHA256SUMS.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

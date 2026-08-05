@@ -4,6 +4,10 @@ import { describe, expect, it } from 'vitest';
 const workflow = readFileSync('.github/workflows/native-smoke.yml', 'utf8');
 const ciWorkflow = readFileSync('.github/workflows/ci.yml', 'utf8');
 const releaseWorkflow = readFileSync('.github/workflows/release.yml', 'utf8');
+const manifestWorkflow = readFileSync(
+  '.github/workflows/updater-manifest.yml',
+  'utf8',
+);
 const wdioConfig = readFileSync('wdio.conf.ts', 'utf8');
 const nativeSpec = readFileSync('tests/e2e/native.spec.ts', 'utf8');
 const refreshIpc = readFileSync('src-tauri/src/refresh/ipc.rs', 'utf8');
@@ -167,26 +171,24 @@ describe('native platform capability contract', () => {
 });
 
 describe('native production-composition spec', () => {
-  it('retries labeled embedded-window discovery until its DOM is loaded', () => {
-    expect(nativeSpec).toMatch(
-      /browser\.waitUntil\(\s*async \(\) => \{[\s\S]*await browser\.getWindowHandles\(\)/,
-    );
-    expect(nativeSpec).toMatch(
-      /handles\.find\(\(handle\) => handle === label\)/,
-    );
+  it('uses labeled Tauri switching to suppress active-window autofocus', () => {
+    expect(nativeSpec).toContain('let windowSwitchingInitialized = false;');
+    expect(nativeSpec).toContain('await browser.tauri.switchWindow(label);');
+    expect(nativeSpec).toContain('await browser.switchToWindow(label);');
+    expect(nativeSpec).not.toContain('await browser.switchToWindow(handle);');
   });
 
-  it('returns to the overlay before opening the panel for provider assertions', () => {
+  it('opens the panel deterministically before provider assertions', () => {
     const productionCase =
       nativeSpec.split(
         "it('shows credential-free production provider states",
       )[1] ?? '';
     expect(
-      productionCase.indexOf("switchToCacheBiteWindow('overlay')"),
+      productionCase.indexOf('showPanelFromOverlayWindow()'),
     ).toBeGreaterThanOrEqual(0);
-    expect(
-      productionCase.indexOf("switchToCacheBiteWindow('overlay')"),
-    ).toBeLessThan(productionCase.indexOf('main[data-window-label="overlay"]'));
+    expect(productionCase.indexOf('showPanelFromOverlayWindow()')).toBeLessThan(
+      productionCase.indexOf('$(\'button[role="tab"]=Claude\')'),
+    );
   });
 
   it('allows documented non-Windows fullscreen capability degradation', () => {
@@ -210,6 +212,105 @@ describe('native production-composition spec', () => {
     );
     expect(nativeSpec).toContain(
       'expect(providerStates.value.codex.snapshot).toBeNull()',
+    );
+  });
+});
+
+describe('updater release automation', () => {
+  it('signs updater artifacts with repository secrets', () => {
+    expect(releaseWorkflow).toContain(
+      'TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}',
+    );
+    expect(releaseWorkflow).toContain(
+      'TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}',
+    );
+  });
+
+  it('derives the shipped version from the tag rather than the committed config', () => {
+    // `tauri.conf.json` stays at a plain 0.1.0, which semver ranks above every
+    // 0.1.0-beta.N. Shipping that would make the updater offer nothing.
+    const derive = extractNamedStep(
+      releaseWorkflow,
+      'Derive the release version from the tag',
+    );
+    expect(derive).toContain('VERSION="${GITHUB_REF_NAME#v}"');
+    expect(derive).toContain('createUpdaterArtifacts');
+    // WiX bails on a non-numeric pre-release unless it is given a numeric
+    // ProductVersion of its own.
+    expect(derive).toContain('wix');
+    expect(releaseWorkflow).toContain(
+      '--config src-tauri/tauri.release.conf.json',
+    );
+  });
+
+  it('bundles the macOS app archive the updater needs, not only the DMG', () => {
+    // The updater installs the `.app.tar.gz`, which only the `app` target emits.
+    expect(releaseWorkflow).toContain('bundles: app,dmg');
+    expect(releaseWorkflow).toContain(
+      'src-tauri/target/universal-apple-darwin/release/bundle/macos/*.tar.gz*',
+    );
+  });
+
+  it('publishes signatures alongside the installers', () => {
+    const collect = extractNamedStep(releaseWorkflow, 'Collect installers');
+    expect(collect).toContain("-name '*.sig'");
+    expect(collect).toContain("-name '*.tar.gz'");
+  });
+
+  it('no longer tells testers there is no auto-updater', () => {
+    expect(releaseWorkflow).not.toContain('CacheBite has no auto-updater');
+  });
+
+  it('regenerates channel manifests only for published, non-bookkeeping releases', () => {
+    // Keyed to `published` so the draft-then-a-human-publishes flow survives,
+    // and skipping the `updater` tag so the job cannot feed on its own output.
+    expect(manifestWorkflow).toContain('types: [published]');
+    expect(manifestWorkflow).toContain(
+      "if: github.event.release.tag_name != 'updater'",
+    );
+    expect(manifestWorkflow).toContain('--out beta.json --previous beta.json');
+    expect(manifestWorkflow).toContain('--prerelease');
+    expect(manifestWorkflow).toContain('--clobber');
+  });
+
+  it('pins every action in the manifest workflow to a full commit SHA', () => {
+    const uses = manifestWorkflow.match(/uses:\s*\S+/g) ?? [];
+    expect(uses.length).toBeGreaterThan(0);
+    for (const entry of uses) {
+      expect(entry).toMatch(/@[0-9a-f]{40}$/);
+    }
+  });
+
+  it('runs both the offered and the failed update path in the native smoke', () => {
+    // The failed path was dead in CI once already, which is how a `Try again`
+    // that could not retry passed every gate.
+    expect(workflow).toContain('CACHEBITE_E2E_UPDATE: available');
+    expect(workflow).toContain('CACHEBITE_E2E_UPDATE: failed');
+  });
+
+  it('keeps failed updates out of Settings while preserving the failed smoke path', () => {
+    expect(nativeSpec).toContain("if (expectedUpdate === 'failed')");
+    expect(nativeSpec).toContain(
+      "await expect($('.update-available-row')).not.toExist();",
+    );
+    expect(nativeSpec).toContain(
+      "await expect($('button=Check for updates')).not.toExist();",
+    );
+  });
+
+  it('guards the minisign private key and self-tests the manifest generator', () => {
+    const privateKeyMarker = [
+      'untrusted comment: minisign ',
+      'encrypted secret key',
+    ].join('');
+
+    expect(ciWorkflow).toContain('minisign_marker_prefix=');
+    expect(ciWorkflow).toContain('minisign_marker_suffix=');
+    expect(ciWorkflow).toContain('private_key_marker=');
+    expect(ciWorkflow).toContain('! git grep -nF "$private_key_marker"');
+    expect(ciWorkflow).not.toContain(privateKeyMarker);
+    expect(extractRunCommands(ciWorkflow)).toContain(
+      'python3 scripts/build_updater_manifest.py --self-test',
     );
   });
 });

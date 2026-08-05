@@ -42,6 +42,7 @@ jobs:
       - run: cargo test --manifest-path src-tauri/Cargo.toml --all-features
       - run: pnpm audit:ci
       - run: pnpm licenses:check > production-licenses.json
+      - run: python3 scripts/build_updater_manifest.py --self-test
       - name: Rust dependency advisory gate
         run: |
           cargo install cargo-audit --version 0.22.2 --locked
@@ -50,3 +51,9 @@ jobs:
         run: |
           ! git grep -nEi '(sk-[a-z0-9_-]{16,}|bearer [a-z0-9._-]{16,})' -- ':!tests/fixtures/**' ':!docs/**'
           ! git grep -nE 'https://(api\.anthropic\.com|chatgpt\.com)' -- 'src/**' 'tests/**'
+          # The updater's signing key is the root of trust for every installed
+          # client. Only the public half belongs in tauri.conf.json.
+          minisign_marker_prefix='untrusted comment: minisign '
+          minisign_marker_suffix='encrypted secret key'
+          private_key_marker="${minisign_marker_prefix}${minisign_marker_suffix}"
+          ! git grep -nF "$private_key_marker"

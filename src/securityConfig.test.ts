@@ -69,4 +69,38 @@ describe('desktop content security policy', () => {
       'core:window:allow-set-size',
     );
   });
+
+  it('pins the updater to signed manifests on the CacheBite release host', () => {
+    const config = JSON.parse(
+      readFileSync(resolve('src-tauri/tauri.conf.json'), 'utf8'),
+    );
+
+    expect(config.plugins.updater.pubkey).toMatch(/\S/);
+    for (const endpoint of config.plugins.updater.endpoints as string[]) {
+      expect(new URL(endpoint).protocol).toBe('https:');
+      expect(new URL(endpoint).host).toBe('github.com');
+    }
+    expect(
+      config.plugins.updater.dangerousInsecureTransportProtocol,
+    ).toBeUndefined();
+    // CI turns this on through the generated release config; committing `true`
+    // would break every local build that lacks the signing key.
+    expect(config.bundle.createUpdaterArtifacts).toBe(false);
+  });
+
+  it('does not grant renderer windows direct updater plugin permission', () => {
+    // The renderer reaches updates only through `window::command_allowed`.
+    // An `updater:*` permission would hand the webview a bypass around it.
+    for (const file of ['overlay.json', 'panel.json']) {
+      const capability = JSON.parse(
+        readFileSync(resolve(`src-tauri/capabilities/${file}`), 'utf8'),
+      ) as { permissions: string[] };
+
+      expect(
+        capability.permissions.some((permission) =>
+          permission.startsWith('updater:'),
+        ),
+      ).toBe(false);
+    }
+  });
 });

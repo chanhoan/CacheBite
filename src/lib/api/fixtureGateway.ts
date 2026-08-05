@@ -114,4 +114,11 @@ export const rendererFixtureGateway: AppGateway = {
   resizePanel: async () => undefined,
   hidePanel: async () => undefined,
   quit: async () => undefined,
+  getUpdateState: async () => ({
+    currentVersion: '0.1.0-fixture',
+    status: { status: 'up_to_date' },
+  }),
+  listenUpdateState: async () => () => undefined,
+  checkForUpdate: async () => undefined,
+  installUpdate: async () => undefined,
 };

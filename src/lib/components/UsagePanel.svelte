@@ -4,13 +4,14 @@
   import { capturedAgo } from '../format/time.js';
   import { systemGuidance } from './systemGuidance.js';
   /** @typedef {import('./panelModels').PanelProviderModel} PanelProvider */
-  /** @type {{ providers: { claude: PanelProvider; codex: PanelProvider }; selected: import('../contracts/domain').Provider; primary?: import('../contracts/domain').Provider; refreshing: boolean; nowMs?: number; onRefresh?: (provider: import('../contracts/domain').Provider) => void; onSelect?: (provider: import('../contracts/domain').Provider) => void; onPrimary?: (provider: import('../contracts/domain').Provider) => void; onSettings?: () => void; onClose?: () => void; onQuit?: () => void }} */
+  /** @type {{ providers: { claude: PanelProvider; codex: PanelProvider }; selected: import('../contracts/domain').Provider; primary?: import('../contracts/domain').Provider; refreshing: boolean; nowMs?: number; updateAvailable?: boolean; onRefresh?: (provider: import('../contracts/domain').Provider) => void; onSelect?: (provider: import('../contracts/domain').Provider) => void; onPrimary?: (provider: import('../contracts/domain').Provider) => void; onSettings?: () => void; onClose?: () => void; onQuit?: () => void }} */
   let {
     providers,
     selected,
     primary = selected,
     refreshing,
     nowMs = Date.now(),
+    updateAvailable = false,
     onRefresh = () => {},
     onSelect = () => {},
     onPrimary = () => {},
@@ -93,8 +94,23 @@
       >
     </div>
     <div class="footer-row">
-      <button class="ghost-action" onclick={() => onSettings()}>Settings</button
+      <button
+        class="ghost-action settings-action"
+        type="button"
+        aria-label={updateAvailable ? 'Settings, update available' : undefined}
+        onclick={() => onSettings()}
       >
+        <span class="settings-label">
+          Settings
+          {#if updateAvailable}
+            <span
+              class="settings-update-dot"
+              data-testid="settings-update-dot"
+              aria-hidden="true"
+            ></span>
+          {/if}
+        </span>
+      </button>
       <button class="ghost-action quit" onclick={() => onQuit()}>Quit</button>
     </div>
   </footer>
@@ -219,6 +235,27 @@
     background: transparent;
     color: var(--color-text-muted);
     font-weight: 500;
+  }
+  .settings-action {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .settings-label {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+  .settings-update-dot {
+    position: absolute;
+    top: 0.15rem;
+    right: -0.6rem;
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 999px;
+    background: var(--sev-exhausted);
+    pointer-events: none;
   }
   .ghost-action:hover,
   .ghost-action:focus-visible {

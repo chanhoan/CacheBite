@@ -1,4 +1,8 @@
 const expectedMode = process.env.CACHEBITE_EXPECTED_COLLECTOR_MODE;
+// Selects which deterministic answer `update::FixtureFeed` serves. Only
+// meaningful in the fixture composition; the production smoke runs the real
+// feed and must never assert a specific update status.
+const expectedUpdate = process.env.CACHEBITE_E2E_UPDATE ?? 'none';
 
 type ProviderStates = {
   claude: { unavailable_reason: string | null; snapshot: unknown | null };
@@ -23,6 +27,11 @@ type NativeWindowStates =
   | NativeWindowState[]
   | Record<string, NativeWindowState>;
 
+type NativeUpdateState = {
+  currentVersion: string;
+  status: { status: string; version?: string; reason?: string };
+};
+
 type InvokeResult<T> =
   | { status: 'resolved'; value: T }
   | { status: 'rejected'; reason: string };
@@ -34,25 +43,23 @@ if (expectedMode !== 'fixture' && expectedMode !== 'production') {
 }
 
 describe(`CacheBite native ${expectedMode} composition smoke`, () => {
+  let windowSwitchingInitialized = false;
+
   const switchToCacheBiteWindow = async (label: 'overlay' | 'panel') => {
+    if (windowSwitchingInitialized) {
+      await browser.switchToWindow(label);
+    } else {
+      await browser.tauri.switchWindow(label);
+      windowSwitchingInitialized = true;
+    }
+
     await browser.waitUntil(
       async () => {
-        const handles = await browser.getWindowHandles();
-        const labeledHandle = handles.find((handle) => handle === label);
-        const candidates = labeledHandle
-          ? [labeledHandle, ...handles.filter((handle) => handle !== label)]
-          : handles;
-
-        for (const handle of candidates) {
-          await browser.switchToWindow(handle);
-          const main = $('main[aria-label="CacheBite"]');
-          if (
-            (await main.isExisting()) &&
-            (await main.getAttribute('data-window-label')) === label
-          )
-            return true;
-        }
-        return false;
+        const main = $('main[aria-label="CacheBite"]');
+        return (
+          (await main.isExisting()) &&
+          (await main.getAttribute('data-window-label')) === label
+        );
       },
       { timeoutMsg: `CacheBite ${label} window was not found` },
     );
@@ -118,6 +125,20 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
     );
   };
 
+  const showPanelFromOverlayWindow = async () => {
+    await switchToCacheBiteWindow('overlay');
+    const showResult = await invokeFromCurrentWindow<'shown' | 'hidden'>(
+      'toggle_panel',
+    );
+
+    if (showResult.status !== 'resolved')
+      throw new Error(`toggle_panel was rejected: ${showResult.reason}`);
+
+    expect(showResult.value).toBe('shown');
+    await waitForPanelVisibility(true);
+    await switchToCacheBiteWindow('panel');
+  };
+
   const hidePanelFromPanelWindow = async () => {
     await switchToCacheBiteWindow('panel');
     const hideResult = await invokeFromCurrentWindow('hide_panel');
@@ -163,6 +184,7 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
   };
 
   it('hydrates through registered IPC and reports the selected collectors', async () => {
+    await showPanelFromOverlayWindow();
     const app = $('main[aria-label="CacheBite"]');
     await expect(app).toExist();
     await expect(app).toHaveAttribute(
@@ -186,10 +208,7 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
       reason: 'forbidden',
     });
 
-    await $(
-      'main[data-window-label="overlay"] [data-testid="overlay-pointer-surface"]',
-    ).doubleClick();
-    await switchToCacheBiteWindow('panel');
+    await showPanelFromOverlayWindow();
 
     await expect($('section[aria-label="Usage panel"]')).toExist();
     const panelHistory =
@@ -232,11 +251,7 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
   });
 
   it('authorizes the panel toggle only from the overlay window', async () => {
-    await switchToCacheBiteWindow('overlay');
-    await $(
-      'main[data-window-label="overlay"] [data-testid="overlay-pointer-surface"]',
-    ).doubleClick();
-    await switchToCacheBiteWindow('panel');
+    await showPanelFromOverlayWindow();
     await expect($('section[aria-label="Usage panel"]')).toExist();
 
     // The panel dismisses itself with `hide_panel`; the toggle is the pet's.
@@ -246,13 +261,149 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
     });
   });
 
+  it('authorizes the update commands only from the panel window', async () => {
+    await switchToCacheBiteWindow('overlay');
+    expect(await invokeFromCurrentWindow('get_update_state')).toEqual({
+      status: 'rejected',
+      reason: 'forbidden',
+    });
+    expect(await invokeFromCurrentWindow('check_for_update')).toEqual({
+      status: 'rejected',
+      reason: 'forbidden',
+    });
+    expect(await invokeFromCurrentWindow('install_update')).toEqual({
+      status: 'rejected',
+      reason: 'forbidden',
+    });
+  });
+
+  if (expectedMode === 'fixture') {
+    const openPanel = async () => {
+      await showPanelFromOverlayWindow();
+    };
+
+    const readUpdateState = async () => {
+      const result =
+        await invokeFromCurrentWindow<NativeUpdateState>('get_update_state');
+      if (result.status !== 'resolved')
+        throw new Error(`get_update_state was rejected: ${result.reason}`);
+      return result.value;
+    };
+
+    const settleUpdateStatus = async (expected: string) => {
+      let seen = '';
+      await browser.waitUntil(
+        async () => {
+          seen = (await readUpdateState()).status.status;
+          return seen === expected;
+        },
+        {
+          timeout: 15_000,
+          interval: 200,
+          timeoutMsg: () =>
+            `update status settled on ${seen}, wanted ${expected}`,
+        },
+      );
+    };
+
+    it('reports the running version through the panel', async () => {
+      await openPanel();
+      // The bundle version is the updater's `current_version`; an empty one
+      // would make every comparison meaningless.
+      expect((await readUpdateState()).currentVersion).not.toBe('');
+    });
+
+    if (expectedUpdate === 'available') {
+      it('routes the available update through Settings', async () => {
+        await openPanel();
+        // Revealing the panel is itself a check trigger, so the state settles
+        // without any manual action.
+        await settleUpdateStatus('available');
+
+        const settingsButton = $(
+          'button[aria-label="Settings, update available"]',
+        );
+        await expect(settingsButton).toExist();
+        await expect(settingsButton).toHaveAttribute(
+          'aria-label',
+          'Settings, update available',
+        );
+        await expect($('[data-testid="settings-update-dot"]')).toExist();
+
+        await settingsButton.click();
+
+        const settingsSection = $(
+          'section[aria-labelledby="settings-heading"]',
+        );
+        await expect(settingsSection).toExist();
+        const availableUpdateText = 'Update available';
+        await expect($('.update-available-row span')).toHaveText(
+          availableUpdateText,
+        );
+        await expect($('button=Install and restart')).toBeEnabled();
+        await expect($('button=Check for updates')).not.toExist();
+        await expect($('button=Later')).not.toExist();
+      });
+
+      it('spends only one check when the panel is reopened inside the floor', async () => {
+        await openPanel();
+        await settleUpdateStatus('available');
+
+        const first = await invokeFromCurrentWindow<number>(
+          'get_update_probe_count',
+        );
+        if (first.status !== 'resolved')
+          throw new Error(`probe count was rejected: ${first.reason}`);
+
+        await hidePanelFromPanelWindow();
+        await openPanel();
+        await settleUpdateStatus('available');
+
+        const second = await invokeFromCurrentWindow<number>(
+          'get_update_probe_count',
+        );
+        if (second.status !== 'resolved')
+          throw new Error(`probe count was rejected: ${second.reason}`);
+
+        // The second reveal falls inside PANEL_OPEN_CHECK_FLOOR (15 minutes).
+        expect(second.value).toBe(first.value);
+      });
+    }
+
+    if (expectedUpdate === 'failed') {
+      it('reports a recoverable failure without blocking the panel', async () => {
+        await openPanel();
+        await settleUpdateStatus('failed');
+
+        await expect($('button=Settings')).toExist();
+        await expect($('[data-testid="settings-update-dot"]')).not.toExist();
+
+        // Usage collection is untouched by a failed update check.
+        await expect($('section[aria-label="Usage panel"]')).toExist();
+        await $('button=Refresh now').click();
+        await expect($('section[aria-label="Usage panel"]')).toExist();
+        await $('button=Settings').click();
+        await expect($('.update-available-row')).not.toExist();
+        await expect($('button=Install and restart')).not.toExist();
+        await expect($('button=Check for updates')).not.toExist();
+      });
+    }
+
+    if (expectedUpdate === 'none') {
+      it('shows no banner and reports up to date', async () => {
+        await openPanel();
+        await settleUpdateStatus('up_to_date');
+
+        await expect(
+          $('section[role="status"][aria-live="polite"]'),
+        ).not.toExist();
+      });
+    }
+  }
+
   if (expectedMode === 'production') {
     it('shows credential-free production provider states after panel hydration', async () => {
-      await switchToCacheBiteWindow('overlay');
-      await $(
-        'main[data-window-label="overlay"] [data-testid="overlay-pointer-surface"]',
-      ).doubleClick();
-      await switchToCacheBiteWindow('panel');
+      await showPanelFromOverlayWindow();
 
       const claudeTab = $('button[role="tab"]=Claude');
       await claudeTab.click();

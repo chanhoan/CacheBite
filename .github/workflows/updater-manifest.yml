@@ -1,0 +1,62 @@
+name: Update channel manifests
+
+# Keyed to `published`, not to the tag push, so the existing
+# draft-then-a-human-publishes flow is preserved: a draft advertises nothing.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  manifests:
+    # The `updater` release holds the manifests themselves; regenerating from
+    # it would be circular.
+    if: github.event.release.tag_name != 'updater'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Build the channel manifest for this release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION="${TAG#v}"
+          mkdir -p work && cd work
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.sig'
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
+            --jq '[.assets[] | {name, browser_download_url}]' > assets.json
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.body'         > notes.md
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.published_at' > pub_date.txt
+          # The `updater` release may not exist yet on the very first run.
+          gh release download updater --repo "$GITHUB_REPOSITORY" --pattern '*.json' || true
+          # beta.json is updated for EVERY published release, stable ones
+          # included: a beta tester must still be offered the stable build that
+          # supersedes their pre-release.
+          python3 ../scripts/build_updater_manifest.py \
+            --version "$VERSION" --notes-file notes.md --pub-date "$(cat pub_date.txt)" \
+            --signatures . --assets assets.json --out beta.json --previous beta.json
+          case "$VERSION" in
+            *-*) echo "pre-release: stable channel untouched" ;;
+            *)   python3 ../scripts/build_updater_manifest.py \
+                   --version "$VERSION" --notes-file notes.md --pub-date "$(cat pub_date.txt)" \
+                   --signatures . --assets assets.json --out stable.json --previous stable.json ;;
+          esac
+      - name: Publish the channel manifests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd work
+          # `--prerelease` so this bookkeeping release never takes GitHub's
+          # "Latest" badge from a real CacheBite build.
+          gh release view updater --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create updater --repo "$GITHUB_REPOSITORY" --prerelease \
+              --title 'Update channel manifests' \
+              --notes 'Machine-generated updater metadata. Not a CacheBite build — see the versioned releases for installers.'
+          # --clobber is required: without it the second upload fails on an
+          # existing asset name.
+          gh release upload updater --repo "$GITHUB_REPOSITORY" --clobber $(ls *.json)
