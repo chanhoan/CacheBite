@@ -75,6 +75,9 @@ pub enum NativeCommand {
     ResizePanel,
     HidePanel,
     Quit,
+    GetUpdateState,
+    CheckForUpdate,
+    InstallUpdate,
 }
 
 pub fn command_allowed(window_label: &str, command: NativeCommand) -> bool {
@@ -103,6 +106,11 @@ pub fn command_allowed(window_label: &str, command: NativeCommand) -> bool {
                 | NativeCommand::ResizePanel
                 | NativeCommand::HidePanel
                 | NativeCommand::Quit
+                // The update notice and the Settings check live in the panel,
+                // so the overlay has no reason to reach any of these.
+                | NativeCommand::GetUpdateState
+                | NativeCommand::CheckForUpdate
+                | NativeCommand::InstallUpdate
         ),
         _ => false,
     }
