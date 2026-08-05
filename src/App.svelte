@@ -13,7 +13,9 @@
     type PetSummaryModel,
     type PlatformCapabilities,
     type ProviderBackendStateWire,
+    type UpdateStateWire,
   } from './lib/api/gateway';
+  import { updateViewModel } from './lib/state/updatePresentation';
   import { rendererFixtureGateway } from './lib/api/fixtureGateway';
   import { fromProviderUiSnapshotWire } from './lib/api/providerSnapshot';
   import { nativeNotificationAdapter } from './lib/api/notificationAdapter';
@@ -89,6 +91,15 @@
     logicalPosition: { x: 0, y: 0 },
   });
   let showSettings = $state(false);
+  let updateState = $state<UpdateStateWire | null>(null);
+  const availableUpdateVersion = $derived(
+    updateState?.status.status === 'available'
+      ? updateState.status.version
+      : null,
+  );
+  const updateView = $derived(
+    updateState ? updateViewModel(updateState, null, false) : null,
+  );
   let themePreference = $state<ThemePreference>(
     loadThemePreference(globalThis.localStorage),
   );
@@ -119,12 +130,12 @@
   });
   // `Date.now()` is not a reactive dependency, so a `$derived` that calls it
   // only recomputes when some unrelated `$state` happens to change. This ticker
-  // is that dependency: it drives fresh→stale transitions and relative-time
+  // is that dependency: it drives fresh?뭩tale transitions and relative-time
   // labels when no snapshot arrives. One minute is fine for a 20-minute stale
   // boundary and for "N min ago"; anything shorter re-renders the always-on
   // overlay for no visible gain.
   const CLOCK_TICK_MS = 60_000;
-  /** Overlay window edge in logical pixels — must match `tauri.conf.json`. */
+  /** Overlay window edge in logical pixels ??must match `tauri.conf.json`. */
   const OVERLAY_WINDOW_PX = 240;
   let nowMs = $state(Date.now());
   let settingsSaveFailed = $state(false);
@@ -134,6 +145,7 @@
   let unlisten: (() => void) | undefined;
   let unlistenPosition: (() => void) | undefined;
   let unlistenSettings: (() => void) | undefined;
+  let unlistenUpdate: (() => void) | undefined;
   let mounted = false;
   let startupAttempt = 0;
   const diagnosticsEnabled = import.meta.env.VITE_CACHEBITE_DIAGNOSTIC === '1';
@@ -253,12 +265,15 @@
     const providerCleanup = unlisten;
     const positionCleanup = unlistenPosition;
     const settingsCleanup = unlistenSettings;
+    const updateCleanup = unlistenUpdate;
     unlisten = undefined;
     unlistenPosition = undefined;
     unlistenSettings = undefined;
+    unlistenUpdate = undefined;
     callCleanup(providerCleanup);
     callCleanup(positionCleanup);
     callCleanup(settingsCleanup);
+    callCleanup(updateCleanup);
   };
 
   const loadPetPackage = async () => {
@@ -312,6 +327,21 @@
         return;
       }
       unlistenSettings = settingsUnlisten;
+      if (windowLabel === 'panel') {
+        // `update-state` is only ever rendered by the panel, and the three
+        // update commands are authorized for the panel alone.
+        const updateUnlisten = await traceAsync(
+          'listenUpdateState',
+          gateway.listenUpdateState((state) => {
+            updateState = state;
+          }),
+        );
+        if (!mounted || attempt !== startupAttempt) {
+          callCleanup(updateUnlisten);
+          return;
+        }
+        unlistenUpdate = updateUnlisten;
+      }
       if (windowLabel !== 'overlay') return;
       const positionUnlisten = await traceAsync(
         'listenPositionMoved',
@@ -372,15 +402,21 @@
         }
       }
       settingsStore.replace(toSettingsStoreState(appSettings));
-      const [, loadedCapabilities] = await Promise.all([
+      const [, loadedCapabilities, loadedUpdateState] = await Promise.all([
         windowLabel === 'overlay'
           ? traceAsync('loadPetPackage', loadPetPackage())
           : // `list_pet_packages` is authorized for the panel only.
             loadPetOptions(),
         gateway.getPlatformCapabilities().catch(() => null),
+        // Seeded rather than waited on: a check that has not run yet reports
+        // `idle`, which renders no banner and never blocks startup.
+        windowLabel === 'panel'
+          ? gateway.getUpdateState().catch(() => null)
+          : Promise.resolve(null),
       ]);
       if (!mounted || attempt !== startupAttempt) return;
       platformCapabilities = loadedCapabilities;
+      updateState = loadedUpdateState;
       consume(states.claude);
       consume(states.codex);
       startupState = 'ready';
@@ -434,7 +470,7 @@
     return () => observer.disconnect();
   });
 
-  // Contract §7.1-4: the bubble self-dismisses after BUBBLE_DISMISS_MS. The
+  // Contract 짠7.1-4: the bubble self-dismisses after BUBBLE_DISMISS_MS. The
   // timer is armed per bubble; a replacement bubble re-arms it via cleanup, and
   // a manual dismiss simply leaves the pending timer to no-op on an empty
   // policy. Only the overlay renders bubbles.
@@ -444,7 +480,7 @@
     if (!bubble) return;
     // Expire against the deadline, not the wall clock at fire time: a timer that
     // fires a millisecond early would leave the policy untouched, and since the
-    // policy returns the same reference the effect never re-arms — the bubble
+    // policy returns the same reference the effect never re-arms ??the bubble
     // would stick forever.
     const timer = window.setTimeout(
       () => interactionStore.expireBubble(bubble.expiresAt),
@@ -580,7 +616,7 @@
   };
   // The single place the drag latch is released. `startDragging()` hands the
   // mouse loop to the OS, so `pointerup` on the surface is not guaranteed to
-  // arrive — every signal that proves the gesture ended routes through here.
+  // arrive ??every signal that proves the gesture ended routes through here.
   const endPointerInteraction = () => {
     pointer = null;
     interactionStore.setDragging(false);
@@ -661,12 +697,16 @@
           hideShowHotkeyAvailable={platformCapabilities?.hide_show_hotkey
             .status !== 'unavailable'}
           pets={petOptions}
+          {availableUpdateVersion}
+          updateBusy={updateView?.busy ?? false}
           onChange={(settings) => void changeSettings(settings)}
           onThemeChange={changeTheme}
+          onInstallUpdate={() => void gateway.installUpdate().catch(() => {})}
         />
       </div>
     {:else}
       <UsagePanel
+        updateAvailable={availableUpdateVersion !== null}
         providers={panelProviders}
         selected={$providersStore.selected}
         primary={$settingsStore.primaryProvider}

@@ -1,4 +1,4 @@
-import {
+﻿import {
   cleanup,
   fireEvent,
   render,
@@ -7,7 +7,11 @@ import {
 } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from './App.svelte';
-import type { AppGateway, ProviderBackendStateWire } from './lib/api/gateway';
+import type {
+  AppGateway,
+  ProviderBackendStateWire,
+  UpdateStateWire,
+} from './lib/api/gateway';
 import type { NotificationAdapter } from './lib/interaction/notificationPolicy';
 
 const active = (
@@ -60,7 +64,7 @@ const pointerEvent = (
 
 // A package with a distinct asset per key. The shared fixture declares only
 // `idle`, so every key would resolve to the same src and a stuck drag latch
-// would be invisible in the rendered image — `dragging` above all.
+// would be invisible in the rendered image ??`dragging` above all.
 const distinctPetPackage: Awaited<ReturnType<AppGateway['getPetPackage']>> = {
   manifest: {
     id: 'fixture-pet',
@@ -85,6 +89,7 @@ const fixture = () => {
   let settingsListener: (
     settings: Awaited<ReturnType<AppGateway['getSettings']>>,
   ) => void = () => undefined;
+  let updateListener: (state: UpdateStateWire) => void = () => undefined;
   const gateway: AppGateway = {
     getCollectorMode: vi.fn().mockResolvedValue({
       claude: 'fixture',
@@ -152,9 +157,20 @@ const fixture = () => {
     resizePanel: vi.fn(async () => undefined),
     hidePanel: vi.fn(async () => undefined),
     quit: vi.fn(async () => undefined),
+    getUpdateState: vi.fn(async () => ({
+      currentVersion: '0.1.0-test',
+      status: { status: 'up_to_date' as const },
+    })),
+    listenUpdateState: vi.fn(async (next) => {
+      updateListener = next;
+      return () => undefined;
+    }),
+    checkForUpdate: vi.fn(async () => undefined),
+    installUpdate: vi.fn(async () => undefined),
   };
   return {
     gateway,
+    emitUpdate: (state: UpdateStateWire) => updateListener(state),
     emit: (state: ProviderBackendStateWire) => listener(state),
     emitSettings: (settings: Awaited<ReturnType<AppGateway['getSettings']>>) =>
       settingsListener(settings),
@@ -610,7 +626,7 @@ describe('application composition root', () => {
     await fireEvent.click(setPrimary);
     await waitFor(() =>
       expect(gateway.updateSettings).toHaveBeenCalledWith(
-        // The pet is the user's choice — switching the primary provider
+        // The pet is the user's choice ??switching the primary provider
         // changes the data source, never the pet on screen.
         expect.objectContaining({
           primaryProvider: 'codex',
@@ -1070,5 +1086,94 @@ describe('application composition root', () => {
     expect(
       (screen.getByLabelText('Start at login') as HTMLInputElement).disabled,
     ).toBe(true);
+  });
+
+  // Listener registration is a floating promise off startup, so emitting
+  // before it lands would deliver to the fixture's no-op default.
+  const renderPanelWithUpdates = async () => {
+    window.history.replaceState({}, '', '/?window=panel');
+    const harness = fixture();
+    render(App, {
+      props: { gateway: harness.gateway, notificationAdapter: notifications },
+    });
+    await screen.findByRole('button', { name: 'Refresh now' });
+    await waitFor(() =>
+      expect(harness.gateway.listenUpdateState).toHaveBeenCalled(),
+    );
+    return harness;
+  };
+
+  it('routes an available update through Settings instead of the main panel', async () => {
+    const { gateway, emitUpdate } = await renderPanelWithUpdates();
+
+    emitUpdate({
+      currentVersion: '0.1.0-test',
+      status: { status: 'available', version: '0.1.0-beta.5', notes: null },
+    });
+
+    expect(screen.queryByText('Update available')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Later' })).toBeNull();
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Settings, update available' }),
+      ).toBeTruthy(),
+    );
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Settings, update available' }),
+    );
+    expect(screen.getByText('Update available')).toBeTruthy();
+
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Install and restart' }),
+    );
+
+    expect(gateway.installUpdate).toHaveBeenCalledTimes(1);
+    expect(gateway.checkForUpdate).not.toHaveBeenCalled();
+  });
+
+  it('keeps update controls hidden in Settings after a failed check', async () => {
+    const { gateway, emitUpdate } = await renderPanelWithUpdates();
+
+    emitUpdate({
+      currentVersion: '0.1.0-test',
+      status: { status: 'failed', reason: 'offline' },
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(screen.queryByText('Update available')).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Install and restart' }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Check for updates' }),
+    ).toBeNull();
+
+    expect(gateway.checkForUpdate).not.toHaveBeenCalled();
+    expect(gateway.installUpdate).not.toHaveBeenCalled();
+  });
+
+  it('keeps update controls hidden while downloading and installing', async () => {
+    const { emitUpdate } = await renderPanelWithUpdates();
+
+    emitUpdate({
+      currentVersion: '0.1.0-test',
+      status: { status: 'downloading', received: 50, total: 100 },
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(screen.queryByText('Downloading…')).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Install and restart' }),
+    ).toBeNull();
+
+    emitUpdate({
+      currentVersion: '0.1.0-test',
+      status: { status: 'installing', version: '0.1.0-beta.5' },
+    });
+
+    await waitFor(() => expect(screen.queryByText('Installing…')).toBeNull());
+    expect(
+      screen.queryByRole('button', { name: 'Install and restart' }),
+    ).toBeNull();
   });
 });

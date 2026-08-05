@@ -23,7 +23,12 @@ SOURCE_ROOT = PROJECT_ROOT / "docs" / "UI-plan" / "assets" / "pet"
 OUTPUT_ROOT = PROJECT_ROOT / "src-tauri" / "resources" / "pets"
 # Package id -> source art directory. The `tabby` package is built from the
 # `cat` artwork: the package was renamed, the source images were not.
-PET_SOURCES = {"tabby": "cat", "corgi": "corgi"}
+PET_SOURCES = {
+    "tabby": "cat",
+    "corgi": "corgi",
+    # The momo sources are ChatGPT sheet art split and aligned per frame.
+    "momo": "momo",
+}
 STATE_SOURCES = {
     "idle": "idle",
     "idle_warn": "warn",
@@ -181,6 +186,16 @@ def keyed_frame(source: Path) -> Image.Image:
     return clean_opaque_frame(rgba)
 
 
+def palette_frame(image: Image.Image) -> Image.Image:
+    """Quantize a bundled frame to a 256-colour palette.
+
+    Cuts the shipped PNGs to roughly a fifth of their truecolour size with no
+    visible change at pet scale (frames render at 128px). Applied only to the
+    bundle output, never to the source art under docs/UI-plan.
+    """
+    return image.quantize(colors=256, method=Image.Quantize.FASTOCTREE)
+
+
 def iter_source_frames() -> list[Path]:
     sources = []
     for source in sorted(SOURCE_ROOT.rglob("*.png")):
@@ -223,7 +238,9 @@ def build_package(package_id: str, source_pet: str) -> None:
             )
         for index, source in enumerate(sources, start=1):
             destination = frames_root / f"{package_id}_{source_state}_{index:02}.png"
-            keyed_frame(source).save(destination, format="PNG", optimize=True)
+            palette_frame(keyed_frame(source)).save(
+                destination, format="PNG", optimize=True
+            )
 
     manifest = {
         "id": package_id,

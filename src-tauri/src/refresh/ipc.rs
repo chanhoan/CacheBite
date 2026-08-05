@@ -187,7 +187,10 @@ where
     Ok(())
 }
 
-fn authorize(window: &tauri::WebviewWindow, command: NativeCommand) -> Result<(), IpcError> {
+pub(crate) fn authorize(
+    window: &tauri::WebviewWindow,
+    command: NativeCommand,
+) -> Result<(), IpcError> {
     command_allowed(window.label(), command)
         .then_some(())
         .ok_or(IpcError::Forbidden)
@@ -395,6 +398,15 @@ fn begin_reveal(
 ) -> Result<(), IpcError> {
     position_panel(anchor, panel)?;
     gate.awaiting_layout.store(true, Ordering::SeqCst);
+
+    // Revealing the panel is the only moment the update notice can be seen, so
+    // it is also the only moment worth spending a check on. Best-effort via
+    // try_state, mirroring how toggle_overlay_visibility reaches PanelLayoutGate:
+    // a panel that opens without an update service is still a working panel, and
+    // `state::<T>()` would panic here instead.
+    if let Some(update) = app.try_state::<crate::update::UpdateService>() {
+        update.check_on_panel_reveal();
+    }
 
     let deadline_app = app.clone();
     tauri::async_runtime::spawn(async move {

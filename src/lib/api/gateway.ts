@@ -76,6 +76,38 @@ export interface CollectorModeDiagnostic {
   readonly claude: CollectorMode;
   readonly codex: CollectorMode;
 }
+/**
+ * Why an update attempt did not complete. Typed rather than a message so no
+ * URL, response body, or filesystem path ever reaches the renderer.
+ */
+export type UpdateFailureReason =
+  | 'offline'
+  | 'rate_limited'
+  | 'metadata_invalid'
+  | 'artifact_missing'
+  | 'download_failed'
+  | 'verification_failed'
+  | 'install_failed';
+export type UpdateStatusWire =
+  | { readonly status: 'idle' }
+  | { readonly status: 'checking' }
+  | { readonly status: 'up_to_date' }
+  | {
+      readonly status: 'available';
+      readonly version: string;
+      readonly notes: string | null;
+    }
+  | {
+      readonly status: 'downloading';
+      readonly received: number;
+      readonly total: number | null;
+    }
+  | { readonly status: 'installing'; readonly version: string }
+  | { readonly status: 'failed'; readonly reason: UpdateFailureReason };
+export interface UpdateStateWire {
+  readonly currentVersion: string;
+  readonly status: UpdateStatusWire;
+}
 export interface AppGateway {
   getCollectorMode(): Promise<CollectorModeDiagnostic>;
   getProviderStates(): Promise<{
@@ -113,6 +145,23 @@ export interface AppGateway {
   hidePanel(): Promise<void>;
   /** Authorized for the `panel` window only (`window::command_allowed`). */
   quit(): Promise<void>;
+  /** Authorized for the `panel` window only (`window::command_allowed`). */
+  getUpdateState(): Promise<UpdateStateWire>;
+  /** Authorized for the `panel` window only (`window::command_allowed`). */
+  listenUpdateState(
+    next: (state: UpdateStateWire) => void,
+  ): Promise<() => void>;
+  /**
+   * Authorized for the `panel` window only. Bypasses the automatic throttle —
+   * the user asking is the signal. Resolves once the check settles; a failed
+   * check arrives as a `failed` status, not a rejection.
+   */
+  checkForUpdate(): Promise<void>;
+  /**
+   * Authorized for the `panel` window only. On success the app exits and
+   * relaunches, so this promise may never resolve.
+   */
+  installUpdate(): Promise<void>;
 }
 
 type SettingsWire = {
@@ -273,4 +322,14 @@ export const tauriGateway: AppGateway = {
   },
   hidePanel: () => invokeNative('hide_panel'),
   quit: () => invokeNative('quit'),
+  // Already camelCase on the wire (`UpdateStateDto` is
+  // `rename_all = "camelCase"`), so this needs no field mapping.
+  getUpdateState: () => invokeNative('get_update_state'),
+  async listenUpdateState(next) {
+    return listen<UpdateStateWire>('update-state', (event) =>
+      next(event.payload),
+    );
+  },
+  checkForUpdate: () => invokeNative('check_for_update'),
+  installUpdate: () => invokeNative('install_update'),
 };

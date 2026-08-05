@@ -75,9 +75,56 @@ Pet UI
           -> macOS adapter
           -> Linux adapter
       -> settings and snapshot store
+      -> update service
+          -> release feed (Tauri updater | fixture)
 ```
 
 Each component exposes a small interface. Provider-specific response formats never reach the UI, and OS-specific APIs never reach the usage collectors.
+
+## In-app updates
+
+CacheBite updates itself from GitHub Releases with no CacheBite server anywhere in the path.
+
+```text
+tag push v0.1.0-beta.5
+  -> release.yml derives the version from the tag and builds signed artifacts
+  -> draft release; a human publishes it
+  -> updater-manifest.yml (on: release published)
+       scripts/build_updater_manifest.py
+       -> beta.json   (every published release)
+       -> stable.json (only when the tag has no pre-release)
+       -> uploaded to the fixed-tag `updater` release
+  -> CacheBite reads one constant CDN URL and compares with plain semver
+```
+
+The manifest is a static file, so there is no API rate limit and no runtime GitHub API call:
+
+```jsonc
+{
+  "version": "0.1.0-beta.5",
+  "notes": "…",
+  "pub_date": "2026-08-04T12:00:00Z",
+  "platforms": {
+    "windows-x86_64":        { "signature": "<minisign>", "url": "https://…-setup.exe" },
+    "windows-x86_64-nsis":   { "signature": "<minisign>", "url": "https://…-setup.exe" },
+    "windows-x86_64-msi":    { "signature": "<minisign>", "url": "https://….msi" },
+    "darwin-aarch64":        { "signature": "<minisign>", "url": "https://…universal.app.tar.gz" },
+    "darwin-x86_64":         { "signature": "<minisign>", "url": "https://…universal.app.tar.gz" },
+    "linux-x86_64-appimage": { "signature": "<minisign>", "url": "https://….AppImage" },
+    "linux-x86_64":          { "signature": "<minisign>", "url": "https://….AppImage" }
+  }
+}
+```
+
+Both macOS keys point at the same universal archive because the plugin resolves `{os}-{arch}-{installer}` then `{os}-{arch}` and stops — there is no `darwin-universal` fallback.
+
+Rules that hold regardless of platform:
+
+- Signature verification is owned by `tauri-plugin-updater` and is fail-closed. There is no bypass flag.
+- The channel is derived from the running version, never stored.
+- The renderer holds no update authority beyond three panel-only commands; it never calls the plugin.
+- Every failure is a typed, recoverable status. Usage collection keeps running through all of them.
+- Installing is always explicit. Nothing installs in the background.
 
 ## Usage model
 

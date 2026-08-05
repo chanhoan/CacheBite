@@ -386,6 +386,22 @@ fn pet_menu_ids_map_to_their_actions_and_unknown_ids_to_none() {
     assert_eq!(pet_menu_action("unrelated-menu-item"), None);
 }
 
+/// The update notice and the Settings check both live in the panel. Granting
+/// the overlay any of these would let the always-on-top pet window start an
+/// install, which is a gesture it has no UI for.
+#[test]
+fn the_overlay_cannot_reach_update_commands() {
+    for command in [
+        NativeCommand::GetUpdateState,
+        NativeCommand::CheckForUpdate,
+        NativeCommand::InstallUpdate,
+    ] {
+        assert!(!command_allowed("overlay", command), "{command:?}");
+        assert!(command_allowed("panel", command), "{command:?}");
+        assert!(!command_allowed("anything-else", command), "{command:?}");
+    }
+}
+
 #[test]
 fn a_visible_or_pending_panel_is_hidden_and_a_hidden_one_is_shown() {
     assert_eq!(panel_toggle(false, false), PanelToggle::Show);
