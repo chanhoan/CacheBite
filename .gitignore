@@ -60,3 +60,5 @@ vite.config.*.timestamp_*
 # Lint / check caches
 .eslintcache
 .svelte-check-cache
+
+scripts/__pycache__/
