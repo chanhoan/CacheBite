@@ -60,7 +60,7 @@ def key_background(rgba: np.ndarray) -> np.ndarray:
     mn = rgb.min(axis=2)
     chroma = rgb.max(axis=2) - mn
     candidate = (mn >= 225) & (chroma <= 14)
-    labels, count = ndi.label(candidate)
+    labels, _ = ndi.label(candidate)
     edge_labels = np.unique(
         np.concatenate([labels[0, :], labels[-1, :], labels[:, 0], labels[:, -1]])
     )
@@ -145,7 +145,11 @@ def process_state(state: str) -> None:
         y = round(CANVAS - BOTTOM_MARGIN - body_bottom)
         canvas = Image.new("RGBA", (CANVAS, CANVAS), (0, 0, 0, 0))
         canvas.paste(resized, (x, y), resized)
-        canvas.save(out_dir / f"momo_{state}_{quadrant + 1:02}.png", optimize=True)
+        # A 256-colour palette keeps the checked-in frames at ~1/5 of their
+        # truecolour size with no visible change at pet scale.
+        canvas.quantize(colors=256, method=Image.Quantize.FASTOCTREE).save(
+            out_dir / f"momo_{state}_{quadrant + 1:02}.png", optimize=True
+        )
     print(f"{state}: 4 frames")
 
 
