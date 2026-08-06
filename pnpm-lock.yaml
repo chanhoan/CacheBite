@@ -70,8 +70,8 @@ importers:
         specifier: 3.12.2
         version: 3.12.2(eslint@9.34.0(jiti@2.7.0))(svelte@5.38.7(@typescript-eslint/types@8.41.0))
       globals:
-        specifier: 16.3.0
-        version: 16.3.0
+        specifier: 17.9.0
+        version: 17.9.0
       jsdom:
         specifier: 26.1.0
         version: 26.1.0
@@ -2040,6 +2040,10 @@ packages:
 
   globals@16.3.0:
     resolution: {integrity: sha512-bqWEnJ1Nt3neqx2q5SFfGS8r/ahumIakg3HcwtNlrVlwXIeNumWn/c7Pn/wKzGhf6SaW6H6uWXLqC30STCMchQ==}
+    engines: {node: '>=18'}
+
+  globals@17.9.0:
+    resolution: {integrity: sha512-m/MvAW61QVU5VDNF1Vj8axt016h8w7L5TU1e9zlab7XIttAT2YAlCwl75K1fOqvMM9apmD7lbCIRhpfkhmxhCg==}
     engines: {node: '>=18'}
 
   graceful-fs@4.2.11:
@@ -5397,6 +5401,8 @@ snapshots:
   globals@14.0.0: {}
 
   globals@16.3.0: {}
+
+  globals@17.9.0: {}
 
   graceful-fs@4.2.11: {}
 
