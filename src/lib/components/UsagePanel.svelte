@@ -2,6 +2,7 @@
   import ProviderTabs from './ProviderTabs.svelte';
   import UsageGauge from './UsageGauge.svelte';
   import { capturedAgo } from '../format/time.js';
+  import { PROVIDER_NAME } from '../contracts/domain';
   import { systemGuidance } from './systemGuidance.js';
   /** @typedef {import('./panelModels').PanelProviderModel} PanelProvider */
   /** @type {{ providers: { claude: PanelProvider; codex: PanelProvider }; selected: import('../contracts/domain').Provider; primary?: import('../contracts/domain').Provider; refreshing: boolean; nowMs?: number; updateAvailable?: boolean; onRefresh?: (provider: import('../contracts/domain').Provider) => void; onSelect?: (provider: import('../contracts/domain').Provider) => void; onPrimary?: (provider: import('../contracts/domain').Provider) => void; onSettings?: () => void; onClose?: () => void; onQuit?: () => void }} */
@@ -49,7 +50,7 @@
       </div>
     {:else}
       <div class="provider-heading">
-        <strong>{selected === 'claude' ? 'Claude' : 'Codex'}</strong>
+        <strong>{PROVIDER_NAME[selected]}</strong>
         {#if current.planType}<span class="plan-chip">{current.planType}</span
           >{/if}
       </div>

@@ -1,6 +1,6 @@
 <script>
-  /** @type {{ session: import('./models').RingWindowModel; weekly: import('./models').RingWindowModel; stale: boolean }} */
-  let { session, weekly, stale } = $props();
+  /** @type {{ session: import('./models').RingWindowModel; weekly: import('./models').RingWindowModel; stale: boolean; name?: string }} */
+  let { session, weekly, stale, name = 'Provider' } = $props();
 
   /** @param {import('./models').RingWindowModel} window */
   const percent = (window) =>
@@ -13,8 +13,11 @@
   // A bare <path> has no implicit role, so a per-path aria-label is dropped by
   // the accessibility tree. One composed label on the <svg> is both announced
   // and easier to listen to than two arcs read in isolation.
+  // The big ring keeps the generic `Provider` name: it is whatever the primary
+  // setting points at, and the panel already names it. Only the satellite needs
+  // disambiguating, because it is the odd one out.
   const ringLabel = $derived(
-    `Provider usage: ${label('5-hour', session)}, ${label('Weekly', weekly)}`,
+    `${name} usage: ${label('5-hour', session)}, ${label('Weekly', weekly)}`,
   );
 </script>
 

@@ -6,3 +6,6 @@ pnpm-lock.yaml
 src-tauri/target
 .tmp-msi-build
 .claude
+# Agent scratch, git-ignored via .superpowers/sdd/.gitignore. Present only in
+# working copies, so it fails `test:ci` locally and never in CI.
+.superpowers

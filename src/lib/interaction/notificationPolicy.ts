@@ -1,4 +1,4 @@
-import type { Provider } from '../contracts/domain';
+import { PROVIDER_NAME, type Provider } from '../contracts/domain';
 import {
   eventMessage,
   reduceEventEligibility,
@@ -88,7 +88,7 @@ export async function handleNotificationEvent(
   );
   const next = { ...state, dedupe: result.dedupe };
   if (!result.accepted) return next;
-  const providerLabel = event.provider === 'claude' ? 'Claude' : 'Codex';
+  const providerLabel = PROVIDER_NAME[event.provider];
   await adapter.send({
     title: 'CacheBite',
     body: `${providerLabel}: ${eventMessage(event)}`,

@@ -40,13 +40,14 @@ export const rendererFixtureGateway: AppGateway = {
     codex: provider('codex'),
   }),
   getSettings: async () => ({
-    schemaVersion: 5,
+    schemaVersion: 6,
     primaryProvider: 'claude',
     selectedPetId: 'fixture-pet',
     bubblesEnabled: true,
     startAtLogin: false,
     notificationsEnabled: false,
     secondaryNotificationsEnabled: false,
+    ringMode: 'single',
     logicalPosition: { x: 0, y: 0 },
   }),
   listenProviderStates: async (next) => {

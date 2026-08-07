@@ -9,6 +9,9 @@ describe('settings and interaction stores', () => {
     const initial = get(store);
     expect(initial.notificationsEnabled).toBe(false);
     expect(initial.secondaryNotificationsEnabled).toBe(false);
+    // Must match the Rust default (`RingMode::Single`): a mismatch would show
+    // the wrong overlay for the split second before getSettings() resolves.
+    expect(initial.ringMode).toBe('single');
     store.setPrimary('codex');
     store.setBubbles(false);
     store.setStartAtLogin(true);
@@ -21,6 +24,9 @@ describe('settings and interaction stores', () => {
       startAtLogin: true,
       notificationsEnabled: true,
       secondaryNotificationsEnabled: true,
+      // No setter touches it: the ring mode rides through `replace`, so the
+      // other setters must leave it alone.
+      ringMode: 'single',
     });
     expect(get(store)).not.toBe(initial);
     store.replace(initial);

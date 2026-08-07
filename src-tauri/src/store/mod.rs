@@ -7,7 +7,7 @@ pub use history::{HistoryPoint, HistoryProvider, HistoryRepository, HistorySampl
 pub use pets::{
     bundled_manifest_info, BundledPetInfo, PetPackage, PetPackageRepository, PetSummary,
 };
-pub use settings::{LogicalPosition, Settings, SettingsRepository};
+pub use settings::{LogicalPosition, RingMode, Settings, SettingsRepository};
 pub use snapshots::{OutcomeMetadata, ProviderRecord, SnapshotRepository, SnapshotStore};
 
 use std::{

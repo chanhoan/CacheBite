@@ -9,7 +9,18 @@ use serde::{Deserialize, Serialize};
 use super::{path_lock, quarantine, write_json_atomically};
 use crate::domain::{is_valid_pet_id, Provider};
 
-const SETTINGS_SCHEMA_VERSION: u32 = 5;
+const SETTINGS_SCHEMA_VERSION: u32 = 6;
+
+/// How many rings the overlay draws. Purely a display preference: it never
+/// reaches collection, refresh scheduling, notification routing, or the pet
+/// mood, so a change here can only ever alter what is painted.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RingMode {
+    #[default]
+    Single,
+    Double,
+}
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -34,6 +45,7 @@ pub struct Settings {
     pub start_at_login: bool,
     pub notification_enabled: bool,
     pub secondary_notification_enabled: bool,
+    pub ring_mode: RingMode,
     pub logical_position: LogicalPosition,
 }
 
@@ -47,6 +59,7 @@ impl Default for Settings {
             start_at_login: false,
             notification_enabled: false,
             secondary_notification_enabled: false,
+            ring_mode: RingMode::Single,
             logical_position: LogicalPosition::default(),
         }
     }
@@ -103,6 +116,22 @@ struct SettingsV4 {
     logical_position: LogicalPosition,
     #[allow(dead_code)]
     hide_show_hotkey: Option<String>,
+}
+
+/// Schema v5 is v6 minus `ring_mode`. Note that a v5 file also parses as
+/// `SettingsV4`, because serde fills a missing `Option` field with `None` — the
+/// `schema_version` guard on every arm is what keeps the two apart.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SettingsV5 {
+    schema_version: u32,
+    primary_provider: Provider,
+    selected_pet_id: String,
+    bubble_enabled: bool,
+    start_at_login: bool,
+    notification_enabled: bool,
+    secondary_notification_enabled: bool,
+    logical_position: LogicalPosition,
 }
 
 #[derive(Deserialize)]
@@ -190,6 +219,23 @@ impl SettingsRepository {
                     return Ok(migrated);
                 }
                 return Ok(settings);
+            }
+        }
+        if let Ok(previous) = serde_json::from_slice::<SettingsV5>(&bytes) {
+            if previous.schema_version == 5 {
+                let migrated = Settings {
+                    primary_provider: previous.primary_provider,
+                    selected_pet_id: previous.selected_pet_id,
+                    bubble_enabled: previous.bubble_enabled,
+                    start_at_login: previous.start_at_login,
+                    notification_enabled: previous.notification_enabled,
+                    secondary_notification_enabled: previous.secondary_notification_enabled,
+                    logical_position: previous.logical_position,
+                    ..Settings::default()
+                };
+                validate(&migrated)?;
+                write_json_atomically(&self.path, &migrated)?;
+                return self.load_locked();
             }
         }
         if let Ok(previous) = serde_json::from_slice::<SettingsV1>(&bytes) {

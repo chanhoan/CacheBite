@@ -104,13 +104,14 @@ const fixture = () => {
       return () => undefined;
     }),
     getSettings: vi.fn(async () => ({
-      schemaVersion: 5,
+      schemaVersion: 6,
       primaryProvider: 'claude' as const,
       selectedPetId: 'tabby',
       bubblesEnabled: true,
       startAtLogin: false,
       notificationsEnabled: false,
       secondaryNotificationsEnabled: false,
+      ringMode: 'single' as const,
       logicalPosition: { x: 0, y: 0 },
     })),
     listenSettings: vi.fn(async (next) => {
@@ -1175,5 +1176,139 @@ describe('application composition root', () => {
     expect(
       screen.queryByRole('button', { name: 'Install and restart' }),
     ).toBeNull();
+  });
+});
+
+// `PetOverlay.test.ts` injects a view model directly, so it proves the overlay
+// draws what it is handed but says nothing about whether the composition root
+// hands it the right thing. Without these, `overlayModel` could drop `satellite`
+// or `orbit` outright, or swap primary and secondary, and CI would stay green.
+describe('ring mode wiring', () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    window.history.replaceState({}, '', '/');
+  });
+
+  const doubleRing = async (
+    gateway: AppGateway,
+    overrides: Partial<Awaited<ReturnType<AppGateway['getSettings']>>> = {},
+  ) => {
+    vi.mocked(gateway.getSettings).mockResolvedValue({
+      ...(await gateway.getSettings()),
+      ringMode: 'double',
+      ...overrides,
+    });
+  };
+
+  const bothProvidersLive = (
+    emit: (state: ProviderBackendStateWire) => void,
+  ) => {
+    emit(active('claude', 2));
+    emit(active('codex', 2));
+  };
+
+  it('gives the satellite the other provider and its own usage', async () => {
+    const { gateway, emit } = fixture();
+    await doubleRing(gateway);
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+    await screen.findByLabelText('CacheBite pet status');
+
+    bothProvidersLive(emit);
+
+    const satellite = await screen.findByTestId('satellite-ring');
+    // Primary is claude, so the satellite must carry codex — and codex's own
+    // numbers (5-hour 20), not a second copy of the primary's (91).
+    expect(
+      satellite.querySelector('[data-testid="provider-logo-codex"]'),
+    ).not.toBeNull();
+    expect(
+      satellite
+        .querySelector('[data-testid="usage-ring"]')
+        ?.getAttribute('aria-label'),
+    ).toBe('Codex usage: 5-hour 20%, Weekly 40%');
+  });
+
+  it('keeps the walker on the primary and follows a primary change', async () => {
+    const { gateway, emit } = fixture();
+    await doubleRing(gateway, { primaryProvider: 'codex' });
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+    await screen.findByLabelText('CacheBite pet status');
+
+    bothProvidersLive(emit);
+
+    const walker = await screen.findByTestId('orbit-walker');
+    expect(walker.getAttribute('aria-label')).toBe('Primary provider: Codex');
+    expect(
+      walker.querySelector('[data-testid="provider-logo-codex"]'),
+    ).not.toBeNull();
+    // The satellite is derived, never stored, so flipping the primary flips it.
+    expect(
+      screen
+        .getByTestId('satellite-ring')
+        .querySelector('[data-testid="provider-logo-claude"]'),
+    ).not.toBeNull();
+  });
+
+  it('draws no satellite in single mode but still walks the primary', async () => {
+    const { gateway, emit } = fixture();
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+    await screen.findByLabelText('CacheBite pet status');
+
+    bothProvidersLive(emit);
+
+    expect(await screen.findByTestId('orbit-walker')).toBeTruthy();
+    expect(screen.queryByTestId('satellite-ring')).toBeNull();
+  });
+
+  it('does not let ring mode reach notification routing', async () => {
+    // The invariant that makes the setting display-only. Notifications only opt
+    // in from the panel window (`configureNotifications` is panel-gated), which
+    // is already half the separation: the ring lives on the overlay. This pins
+    // the other half — with `double` selected, routing still answers to the
+    // primary and `secondaryNotificationsEnabled` alone.
+    window.history.replaceState({}, '', '/?window=panel');
+    const adapter: NotificationAdapter = {
+      capability: vi.fn(async () => ({ status: 'available' as const })),
+      permission: vi.fn(async () => 'granted' as const),
+      requestPermission: vi.fn(async () => 'granted' as const),
+      send: vi.fn(async () => undefined),
+    };
+    const { gateway, emit } = fixture();
+    await doubleRing(gateway, {
+      notificationsEnabled: true,
+      secondaryNotificationsEnabled: false,
+    });
+    render(App, { props: { gateway, notificationAdapter: adapter } });
+    await screen.findByText('Pro');
+
+    emit(active('codex', 2, 100));
+    await waitFor(() => expect(gateway.getSettings).toHaveBeenCalled());
+    expect(adapter.send).not.toHaveBeenCalled();
+
+    // The same event on the primary does notify, so the silence above is the
+    // secondary gate and not a dead notification path.
+    emit(active('claude', 3, 100));
+    await waitFor(() =>
+      expect(adapter.send).toHaveBeenCalledWith(
+        expect.objectContaining({ body: expect.stringContaining('Claude:') }),
+      ),
+    );
+  });
+
+  it('narrows the pet for a bubble instead of letting CSS clamp it', async () => {
+    // The walker's `offset-path` is absolute pixels against `model.size`, so a
+    // width only the stylesheet knew about would leave the mark orbiting a
+    // circle that is no longer there. The fixture pet is 160px; the bubble
+    // ceiling is 152.
+    const { gateway, emit } = fixture();
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+    const overlay = await screen.findByLabelText('CacheBite pet status');
+    expect(overlay.style.width).toBe('160px');
+
+    emit(active('claude', 2, 100));
+    await screen.findByTestId('overlay-toast');
+
+    await waitFor(() => expect(overlay.style.width).toBe('152px'));
   });
 });

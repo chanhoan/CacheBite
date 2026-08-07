@@ -8,7 +8,10 @@ import {
   FRESH_MAX_AGE_MS,
   SNAPSHOT_TTL_MS,
 } from './engine';
-import type { ProviderUiSnapshot } from '../contracts/domain';
+import {
+  secondaryProvider,
+  type ProviderUiSnapshot,
+} from '../contracts/domain';
 import { fromProviderUiSnapshotWire } from '../api/providerSnapshot';
 import { createProvidersStore } from '../stores/providers';
 
@@ -386,5 +389,17 @@ describe('domain presentation rules', () => {
     expect(derivePetUiState(claude, NOW).petMood).toBe('critical');
     expect(derivePetUiState(codex, NOW).petMood).toBe('ok');
     expect(codex.revision).toBe(1);
+  });
+});
+
+describe('secondaryProvider', () => {
+  it('picks whichever provider the primary is not', () => {
+    expect(secondaryProvider('claude')).toBe('codex');
+    expect(secondaryProvider('codex')).toBe('claude');
+  });
+
+  it('is an involution, so the pair can never collapse onto one provider', () => {
+    expect(secondaryProvider(secondaryProvider('claude'))).toBe('claude');
+    expect(secondaryProvider(secondaryProvider('codex'))).toBe('codex');
   });
 });

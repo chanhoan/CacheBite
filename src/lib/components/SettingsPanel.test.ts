@@ -9,6 +9,7 @@ const settings = {
   startAtLogin: false,
   notificationsEnabled: false,
   secondaryNotificationsEnabled: false,
+  ringMode: 'single',
 } as const;
 
 describe('SettingsPanel', () => {
@@ -65,6 +66,32 @@ describe('SettingsPanel', () => {
       expect.objectContaining({ secondaryNotificationsEnabled: true }),
     );
     expect(onThemeChange).toHaveBeenCalledWith('dark');
+  });
+
+  it('emits the ring mode without disturbing the primary provider', async () => {
+    const onChange = vi.fn();
+    render(SettingsPanel, { props: { settings, onChange } });
+
+    await fireEvent.change(screen.getByLabelText('Ring'), {
+      target: { value: 'double' },
+    });
+
+    // Ring count and provider choice are orthogonal: picking Double must not
+    // rewrite which provider drives the big ring.
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ringMode: 'double',
+        primaryProvider: 'claude',
+      }),
+    );
+  });
+
+  it('keeps the ring control separate from the colour theme', () => {
+    render(SettingsPanel, { props: { settings, theme: 'dark' } });
+
+    // Merging the two would make "dark + double" unrepresentable.
+    expect(screen.getByLabelText('Ring')).toBeTruthy();
+    expect(screen.getByLabelText('Appearance')).toBeTruthy();
   });
 
   it('shows the fixed shortcut the way the running platform spells it', () => {
