@@ -5,9 +5,17 @@ import {
   orbitPath,
   OVERLAY_BOUNDS_FACTOR,
   RING_OUTER_RADIUS,
-  SATELLITE_BOTTOM,
-  SATELLITE_RIGHT,
+  SATELLITE_BEARING,
+  SATELLITE_CENTER,
+  SATELLITE_DISTANCE,
+  SATELLITE_READOUT_RATIO,
   SATELLITE_SIZE,
+  SATELLITE_WALK_DURATION_S,
+  SATELLITE_WALKER_SIZE,
+  satelliteOrbitPath,
+  TANGENT_HALF_ANGLE,
+  TANGENT_RATIO,
+  WALK_DURATION_S,
   WALKER_SIZE,
 } from './orbitPath';
 
@@ -35,17 +43,14 @@ const distance = (
 ): number => Math.hypot(a.x - b.x, a.y - b.y);
 
 const CENTRE = { x: 50, y: 50 };
-const SATELLITE_CENTRE = {
-  x: 100 - SATELLITE_RIGHT - SATELLITE_SIZE / 2,
-  y: 100 - SATELLITE_BOTTOM - SATELLITE_SIZE / 2,
-};
-// The walker is centred on the path, so its feet reach half its size inward.
+// The walkers are centred on their paths, so their feet reach half their size
+// inward. Each ring carries its own mark, at its own size.
 const BIG_ORBIT = RING_OUTER_RADIUS + WALKER_SIZE / 2;
-const SMALL_ORBIT = SATELLITE_SIZE / 2 + WALKER_SIZE / 2;
+const SMALL_ORBIT = SATELLITE_SIZE / 2 + SATELLITE_WALKER_SIZE / 2;
 
 describe('orbitPath', () => {
-  it('keeps the walker a constant step outside the ring in single mode', () => {
-    const path = orbitPath(160, false);
+  it('keeps the walker a constant step outside the ring', () => {
+    const path = orbitPath(160);
 
     for (const p of points(path, 160)) {
       // Feet on the ring's outer edge, all the way round.
@@ -54,89 +59,178 @@ describe('orbitPath', () => {
     expect(path.endsWith('Z')).toBe(true);
   });
 
-  it('scales with the overlay so the loop is size-independent', () => {
-    const small = points(orbitPath(100, false), 100);
-    const large = points(orbitPath(226, false), 226);
+  it('keeps the satellite walker a constant step outside the small ring', () => {
+    const path = satelliteOrbitPath(160);
 
-    expect(large).toHaveLength(small.length);
-    large.forEach((p, index) => {
-      const reference = small.at(index) ?? p;
-      expect(p.x).toBeCloseTo(reference.x, 1);
-      expect(p.y).toBeCloseTo(reference.y, 1);
-    });
-  });
-
-  it('walks the union outline of both circles in double mode', () => {
-    const traced = points(orbitPath(160, true), 160);
-
-    for (const p of traced) {
-      const onBig = Math.abs(distance(p, CENTRE) - BIG_ORBIT) < 0.05;
-      const onSmall =
-        Math.abs(distance(p, SATELLITE_CENTRE) - SMALL_ORBIT) < 0.05;
-      // Every anchor rides one of the two circles...
-      expect(onBig || onSmall).toBe(true);
-      // ...and never dips inside the other, which is what makes this an
-      // outline rather than two overlapping loops.
-      expect(distance(p, CENTRE)).toBeGreaterThanOrEqual(BIG_ORBIT - 0.05);
-      expect(distance(p, SATELLITE_CENTRE)).toBeGreaterThanOrEqual(
-        SMALL_ORBIT - 0.05,
-      );
+    for (const p of points(path, 160)) {
+      expect(distance(p, SATELLITE_CENTER)).toBeCloseTo(SMALL_ORBIT, 2);
     }
-
-    // Both circles actually contribute; the satellite is not skipped.
-    expect(
-      traced.some((p) => Math.abs(distance(p, CENTRE) - BIG_ORBIT) < 0.05),
-    ).toBe(true);
-    expect(
-      traced.some(
-        (p) => Math.abs(distance(p, SATELLITE_CENTRE) - SMALL_ORBIT) < 0.05,
-      ),
-    ).toBe(true);
+    expect(path.endsWith('Z')).toBe(true);
   });
 
-  it('hands off between the circles without a jump', () => {
-    const path = orbitPath(160, true);
-    const traced = points(path, 160);
+  it('scales with the overlay so the loops are size-independent', () => {
+    for (const build of [orbitPath, satelliteOrbitPath]) {
+      const small = points(build(100), 100);
+      const large = points(build(226), 226);
 
-    // One `M` and a closing `Z` mean a single subpath: the walker never lifts
-    // off and reappears somewhere else.
-    expect(path.match(/M/g)).toHaveLength(1);
-    expect(path.trimEnd().endsWith('Z')).toBe(true);
+      expect(large).toHaveLength(small.length);
+      large.forEach((p, index) => {
+        const reference = small.at(index) ?? p;
+        expect(p.x).toBeCloseTo(reference.x, 1);
+        expect(p.y).toBeCloseTo(reference.y, 1);
+      });
+    }
+  });
 
-    // Exactly two anchors sit on both circles at once. Those crossings are the
-    // handover points, and landing on both is what makes the seam continuous.
-    // The loop starts on one of them, so it is emitted twice — dedupe first.
-    const crossings = new Set(
-      traced
-        .filter(
-          (p) =>
-            Math.abs(distance(p, CENTRE) - BIG_ORBIT) < 0.05 &&
-            Math.abs(distance(p, SATELLITE_CENTRE) - SMALL_ORBIT) < 0.05,
-        )
-        .map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`),
+  it('places the satellite down and to the right', () => {
+    expect(SATELLITE_CENTER.x).toBeGreaterThan(50);
+    expect(SATELLITE_CENTER.y).toBeGreaterThan(50);
+    expect(SATELLITE_BEARING).toBeGreaterThan(0);
+    // Past 45° the vertical axis would start binding the size budget instead of
+    // the horizontal, and the satellite would sit under the pet rather than
+    // beside it.
+    expect(SATELLITE_BEARING).toBeLessThan(45);
+  });
+
+  it('rests both circles on one horizontal line', () => {
+    // The requirement: the satellite's lowest point must not drop below the big
+    // ring's. Taking the equality is what makes the lower of the two tangents
+    // come out flat, so the pair reads as two circles on the same floor with
+    // the far one set back.
+    const bigBottom = 50 + RING_OUTER_RADIUS;
+    const smallBottom = SATELLITE_CENTER.y + SATELLITE_SIZE / 2;
+
+    expect(smallBottom).toBeLessThanOrEqual(bigBottom + 1e-9);
+    expect(smallBottom).toBeCloseTo(bigBottom, 6);
+    // Which is the same statement as the bearing not exceeding the half-angle,
+    // since sin(half-angle) is (R - r) / distance by construction.
+    expect(SATELLITE_BEARING).toBeCloseTo(TANGENT_HALF_ANGLE, 6);
+  });
+
+  it('separates the two rings so neither swallows the other', () => {
+    const gap = SATELLITE_DISTANCE - RING_OUTER_RADIUS - SATELLITE_SIZE / 2;
+
+    // Touching or overlapping would put the satellite back to reading as a
+    // badge stuck on the big ring, which is the layout this replaced.
+    expect(gap).toBeGreaterThan(0);
+  });
+
+  it('converges the two outer tangents on both circles at the same angle', () => {
+    // The design constraint: one line off the big circle and one off the small
+    // one, converging at equal angles and touching both. Tangency means the
+    // perpendicular distance from each centre equals that circle's own radius —
+    // check it directly rather than trusting the arcsin that produced it.
+    const smallRadius = SATELLITE_SIZE / 2;
+    // Upper tangent. The whole construction rotates with the bearing, so each
+    // contact point sits at `bearing + half-angle - 90°` round its own circle —
+    // a quarter turn back from the centre line, then forward by the half-angle.
+    const contactAngle =
+      ((SATELLITE_BEARING + TANGENT_HALF_ANGLE - 90) * Math.PI) / 180;
+    const contact = (cx: number, cy: number, radius: number) => ({
+      x: cx + radius * Math.cos(contactAngle),
+      y: cy + radius * Math.sin(contactAngle),
+    });
+    const onBig = contact(CENTRE.x, CENTRE.y, RING_OUTER_RADIUS);
+    const onSmall = contact(
+      SATELLITE_CENTER.x,
+      SATELLITE_CENTER.y,
+      smallRadius,
     );
+    const perpendicular = (cx: number, cy: number) =>
+      Math.abs(
+        (onSmall.y - onBig.y) * cx -
+          (onSmall.x - onBig.x) * cy +
+          onSmall.x * onBig.y -
+          onSmall.y * onBig.x,
+      ) / Math.hypot(onSmall.x - onBig.x, onSmall.y - onBig.y);
 
-    expect(crossings.size).toBe(2);
+    expect(perpendicular(CENTRE.x, CENTRE.y)).toBeCloseTo(RING_OUTER_RADIUS, 6);
+    expect(perpendicular(SATELLITE_CENTER.x, SATELLITE_CENTER.y)).toBeCloseTo(
+      smallRadius,
+      6,
+    );
+    // The contact points are not the circles' extreme points across the centre
+    // line — joining those would give two parallel lines that never converge.
+    expect(onBig.x).not.toBeCloseTo(CENTRE.x, 3);
+    expect(onSmall.x).not.toBeCloseTo(SATELLITE_CENTER.x, 3);
+    // And the angle is one a person would call a recede, not a megaphone.
+    expect(TANGENT_HALF_ANGLE).toBeGreaterThan(20);
+    expect(TANGENT_HALF_ANGLE).toBeLessThan(30);
   });
 
-  it('reserves enough room for the walker, the outermost element', () => {
-    const half = WALKER_SIZE / 2;
+  it('matches the two walkers on linear speed, not angular speed', () => {
+    // The same period on a smaller circle would make the satellite's mark crawl
+    // at 43% of the primary's pace, and the two would stop looking like one
+    // creature seen at two distances.
+    expect(SATELLITE_WALK_DURATION_S / WALK_DURATION_S).toBeCloseTo(
+      SMALL_ORBIT / BIG_ORBIT,
+      6,
+    );
+    expect(SATELLITE_WALK_DURATION_S).toBeLessThan(WALK_DURATION_S);
+  });
+
+  it('keeps the satellite mark proportionate to its own ring', () => {
+    // Reusing WALKER_SIZE here would make the mark 39% of the satellite's
+    // diameter against the primary's 15% of the big ring.
+    const bigRatio = WALKER_SIZE / (RING_OUTER_RADIUS * 2);
+    const smallRatio = SATELLITE_WALKER_SIZE / SATELLITE_SIZE;
+
+    expect(SATELLITE_WALKER_SIZE).toBeLessThan(WALKER_SIZE);
+    expect(smallRatio).toBeLessThan(bigRatio * 2);
+  });
+
+  it('leaves room for a three-digit readout inside the puck', () => {
+    // Clear space is the arc radius less half the stroke: 38.75% of the box,
+    // so 77.5% across. Tabular digits in the mono fallback advance at roughly
+    // 0.62em, the widest of the stacked faces.
+    const clearWidth = 2 * (42 - 6.5 / 2);
+    const widestReading = 3 * SATELLITE_READOUT_RATIO * 0.62 * 100;
+
+    expect(widestReading).toBeLessThan(clearWidth);
+  });
+
+  it('reserves enough room for the walkers, the outermost elements', () => {
     // Clipping is axis-aligned — the window is a square with the overlay
     // centred in it — so the radial extreme is not what matters. The far side
-    // of the satellite's orbit is the binding constraint on both axes, since
-    // the satellite already sits low and right of centre.
+    // of the satellite's orbit is the binding constraint now that the satellite
+    // sits a full SATELLITE_DISTANCE out.
+    //
+    // `offset-rotate: auto` spins each mark with its path, so its axis-aligned
+    // half-width breathes between s/2 and s/√2 and the furthest point is not at
+    // the orbit's own extreme. Sweep the whole loop rather than reusing the
+    // closed form the source solves for — an independent check is the point.
+    const sweep = (centre: number, orbit: number, size: number): number => {
+      let furthest = 0;
+      for (let degrees = 0; degrees < 360; degrees += 0.05) {
+        const radians = (degrees * Math.PI) / 180;
+        const half =
+          (size / 2) *
+          (Math.abs(Math.sin(radians)) + Math.abs(Math.cos(radians)));
+        furthest = Math.max(
+          furthest,
+          centre + orbit * Math.cos(radians) + half,
+        );
+      }
+      return furthest - 50;
+    };
     const reach = Math.max(
-      BIG_ORBIT + half - 50 + 50,
-      SATELLITE_CENTRE.x + SMALL_ORBIT + half - 50,
-      SATELLITE_CENTRE.y + SMALL_ORBIT + half - 50,
+      sweep(50, BIG_ORBIT, WALKER_SIZE),
+      sweep(SATELLITE_CENTER.x, SMALL_ORBIT, SATELLITE_WALKER_SIZE),
+      sweep(SATELLITE_CENTER.y, SMALL_ORBIT, SATELLITE_WALKER_SIZE),
     );
 
-    expect(OVERLAY_BOUNDS_FACTOR).toBeCloseTo((2 * reach) / 100, 5);
+    // A model that ignored the rotation would land about 0.37 short here, and a
+    // package asking for exactly the clamped size would clip on the right.
+    expect(OVERLAY_BOUNDS_FACTOR).toBeCloseTo((2 * reach) / 100, 3);
     // The consequence that actually matters: clamping a 240px window by this
-    // factor leaves the whole loop on screen.
+    // factor leaves both loops on screen.
     expect(
       (reach / 100) * (240 / OVERLAY_BOUNDS_FACTOR) * 2,
     ).toBeLessThanOrEqual(240);
+    // And the one the layout was tuned for: every bundled pet manifest declares
+    // defaultSize 128, so a clamp below that would let a display preference
+    // silently shrink the pet.
+    expect(240 / OVERLAY_BOUNDS_FACTOR).toBeGreaterThanOrEqual(128);
   });
 
   // The roll is supplied by the caller so the mapping is pinnable here and the
@@ -148,14 +242,24 @@ describe('orbitPath', () => {
     expect(orbitDirection(0.999)).toBe('reverse');
   });
 
-  // The two orbits intersect for the constants above, but they are exported to
-  // be tuned, and `Math.acos` out of domain would emit `NaN` coordinates that
-  // browsers drop without a word.
+  it('keeps the tangent construction inside asin domain', () => {
+    // Fails here rather than three derivations downstream. Out of domain, the
+    // NaN reaches SATELLITE_CENTER, OVERLAY_BOUNDS_FACTOR and finally the pet's
+    // rendered width — the symptom would be an overlay with no width at all.
+    expect(Math.abs(TANGENT_RATIO)).toBeLessThan(1);
+    expect(SATELLITE_DISTANCE).toBeGreaterThan(
+      RING_OUTER_RADIUS - SATELLITE_SIZE / 2,
+    );
+    expect(Number.isFinite(TANGENT_HALF_ANGLE)).toBe(true);
+  });
+
+  // The constants above are exported to be tuned, and a `NaN` reaching a path
+  // string is dropped by browsers without a word — the mark would simply stop
+  // appearing, with nothing in the console to say why.
   it('never emits NaN coordinates', () => {
     for (const size of [64, 128, 172, 240]) {
-      for (const hasSatellite of [true, false]) {
-        expect(orbitPath(size, hasSatellite)).not.toMatch(/NaN/);
-      }
+      expect(orbitPath(size)).not.toMatch(/NaN/);
+      expect(satelliteOrbitPath(size)).not.toMatch(/NaN/);
     }
   });
 });

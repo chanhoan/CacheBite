@@ -47,7 +47,16 @@ export const rendererFixtureGateway: AppGateway = {
     startAtLogin: false,
     notificationsEnabled: false,
     secondaryNotificationsEnabled: false,
-    ringMode: 'single',
+    // Opt-in via `?ring=double`, the same query-parameter channel the toast
+    // layout spec uses below. Defaulting to `single` keeps every existing spec
+    // on the layout it was written against; the double-ring specs are the only
+    // place a real engine ever evaluates `offset-path`, the satellite's
+    // placement, or the z-order that carries the perspective — none of which
+    // jsdom computes.
+    ringMode:
+      new URLSearchParams(window.location.search).get('ring') === 'double'
+        ? 'double'
+        : 'single',
     logicalPosition: { x: 0, y: 0 },
   }),
   listenProviderStates: async (next) => {

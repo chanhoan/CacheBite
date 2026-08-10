@@ -266,7 +266,124 @@ describe('PetOverlay', () => {
           name: 'Codex usage: 5-hour 41%, Weekly 58%',
         }),
       ).toBeTruthy();
-      expect(screen.getByTestId('provider-logo-codex')).toBeTruthy();
+      // The mark left the puck and now walks the satellite's own orbit, so the
+      // small ring's middle is free for its reading.
+      expect(
+        screen
+          .getByTestId('satellite-orbit-walker')
+          .querySelector('[data-testid="provider-logo-codex"]'),
+      ).not.toBeNull();
+      expect(
+        screen
+          .getByTestId('satellite-ring')
+          .querySelector('[data-testid="provider-logo-codex"]'),
+      ).toBeNull();
+    });
+
+    it('reads out the satellite 5-hour figure without announcing it twice', () => {
+      render(PetOverlay, { props: { model: model(satellite()) } });
+
+      const readout = screen.getByTestId('satellite-readout');
+      expect(readout.textContent?.trim()).toBe('41');
+      expect(readout.getAttribute('data-window')).toBe('session');
+      // Number and its arc report the same window, so they take the same
+      // colour; a neutral readout would read as a second, separate fact.
+      expect(readout.getAttribute('data-severity')).toBe('ok');
+      // The ring's own label already carries `5-hour 41%`.
+      expect(readout.getAttribute('aria-hidden')).toBe('true');
+    });
+
+    it('falls back to the weekly figure when the 5-hour cap is lifted', () => {
+      // Providers run promotions that remove the 5-hour limit outright, and the
+      // window then reports nothing rather than zero. Pinning the readout to 5H
+      // would blank the puck for the whole event.
+      render(PetOverlay, {
+        props: {
+          model: model(
+            satellite({
+              session: { usedPercent: null, severity: 'unknown' },
+              weekly: { usedPercent: 62, severity: 'warn' },
+            }),
+          ),
+        },
+      });
+
+      const readout = screen.getByTestId('satellite-readout');
+      expect(readout.textContent?.trim()).toBe('62');
+      expect(readout.getAttribute('data-window')).toBe('weekly');
+      // Taking the weekly severity is what tells the two apart without a label:
+      // an empty upper arc beside a number tinted like the lower one can only
+      // be the weekly reading.
+      expect(readout.getAttribute('data-severity')).toBe('warn');
+    });
+
+    it('prefers the 5-hour figure even when the weekly one is worse', () => {
+      // The fallback triggers on absence, never on severity. A number that
+      // switched windows because one got worse would be unreadable — the
+      // 5H / WK labels are hidden at this size.
+      render(PetOverlay, {
+        props: {
+          model: model(
+            satellite({
+              session: { usedPercent: 12, severity: 'ok' },
+              weekly: { usedPercent: 97, severity: 'critical' },
+            }),
+          ),
+        },
+      });
+
+      const readout = screen.getByTestId('satellite-readout');
+      expect(readout.textContent?.trim()).toBe('12');
+      expect(readout.getAttribute('data-window')).toBe('session');
+    });
+
+    it('draws an em dash rather than a zero when neither window reports', () => {
+      render(PetOverlay, {
+        props: {
+          model: model(
+            satellite({
+              session: { usedPercent: null, severity: 'unknown' },
+              weekly: { usedPercent: null, severity: 'unknown' },
+            }),
+          ),
+        },
+      });
+
+      // A `0` inside empty tracks would read as "nothing used yet" rather than
+      // "no reading".
+      expect(screen.getByTestId('satellite-readout').textContent?.trim()).toBe(
+        '—',
+      );
+    });
+
+    it('clamps a satellite reading above the window limit', () => {
+      render(PetOverlay, {
+        props: {
+          model: model(
+            satellite({ session: { usedPercent: 137, severity: 'exhausted' } }),
+          ),
+        },
+      });
+
+      expect(screen.getByTestId('satellite-readout').textContent?.trim()).toBe(
+        '100',
+      );
+    });
+
+    it('keeps the satellite walker out of the accessibility tree', () => {
+      render(PetOverlay, { props: { model: model(satellite()) } });
+
+      // Only the big mark is named: the big ring's label is generic, while the
+      // satellite's ring already says "Codex". Naming the satellite's mark too
+      // would read the same provider a third time.
+      expect(
+        screen.getByRole('img', { name: 'Primary provider: Claude' }),
+      ).toBeTruthy();
+      expect(screen.queryByLabelText('Secondary provider: Codex')).toBeNull();
+
+      const satelliteWalker = screen.getByTestId('satellite-orbit-walker');
+      expect(satelliteWalker.getAttribute('aria-hidden')).toBe('true');
+      expect(satelliteWalker.getAttribute('role')).toBeNull();
     });
 
     it('nests the satellite ring below the overlay rule', () => {
@@ -297,6 +414,7 @@ describe('PetOverlay', () => {
       expect(
         screen.queryByTestId('overlay-satellite-pointer-surface'),
       ).toBeNull();
+      expect(screen.queryByTestId('satellite-orbit-walker')).toBeNull();
     });
 
     it('routes gestures over the satellite to the same handlers', async () => {
@@ -364,8 +482,14 @@ describe('PetOverlay', () => {
           name: 'Provider usage: 5-hour 74%, Weekly 93%',
         }),
       ).toBeTruthy();
-      // The logo still identifies which provider needs attention.
-      expect(screen.getByTestId('provider-logo-codex')).toBeTruthy();
+      // The readout goes with the ring, but the mark keeps walking: identity
+      // matters most when the provider is the one that failed.
+      expect(screen.queryByTestId('satellite-readout')).toBeNull();
+      expect(
+        screen
+          .getByTestId('satellite-orbit-walker')
+          .querySelector('[data-testid="provider-logo-codex"]'),
+      ).not.toBeNull();
     });
 
     it('badges a failing big ring without blanking the satellite', () => {
@@ -399,8 +523,9 @@ describe('PetOverlay', () => {
         },
       });
 
-      // Claude appears twice: once in the satellite, once on the walker, which
-      // always carries the primary mark.
+      // Claude appears twice: once on the big ring's mark, which always carries
+      // the primary, and once on the satellite's own — which here happens to be
+      // Claude as well because the model was built that way.
       expect(screen.getAllByTestId('provider-logo-claude')).toHaveLength(2);
       expect(screen.queryByTestId('provider-logo-codex')).toBeNull();
     });
@@ -432,11 +557,12 @@ describe('PetOverlay', () => {
       ).toBeTruthy();
     });
 
-    it('walks in both ring modes, on a longer loop once there is a satellite', () => {
+    it('keeps the big loop identical in both ring modes and adds a second mark', () => {
       const single = render(PetOverlay, { props: { model: model() } });
       const singlePath = screen.getByTestId('orbit-walker').style.offsetPath;
 
       expect(singlePath.startsWith('path(')).toBe(true);
+      expect(screen.queryByTestId('satellite-orbit-walker')).toBeNull();
 
       single.unmount();
       render(PetOverlay, {
@@ -454,11 +580,15 @@ describe('PetOverlay', () => {
         },
       });
 
-      // The satellite adds its own arc to the outline, so the loop the walker
-      // follows genuinely changes rather than staying the big ring alone.
-      expect(screen.getByTestId('orbit-walker').style.offsetPath).not.toBe(
+      // The two rings are separate objects now, so the primary's loop is its
+      // own circle either way — only a second mark appears. A big path that
+      // changed with the mode would mean the mode had resized the pet.
+      expect(screen.getByTestId('orbit-walker').style.offsetPath).toBe(
         singlePath,
       );
+      const satelliteWalker = screen.getByTestId('satellite-orbit-walker');
+      expect(satelliteWalker.style.offsetPath.startsWith('path(')).toBe(true);
+      expect(satelliteWalker.style.offsetPath).not.toBe(singlePath);
     });
 
     it('takes the direction the model chose', () => {

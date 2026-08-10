@@ -1,10 +1,18 @@
 <script>
-  import ProviderLogo from './ProviderLogo.svelte';
   import SplitUsageRing from './SplitUsageRing.svelte';
   import SystemBadge from './SystemBadge.svelte';
+  import { satelliteReading } from './ringReadout';
 
   /** @type {{ model: import('./models').SatelliteRingModel }} */
   let { model } = $props();
+
+  const reading = $derived(satelliteReading(model));
+  // An em dash, not `0` — reached only when neither window reported anything.
+  // The ring is already drawing empty tracks in that case, and a `0` in the
+  // middle of them would read as "nothing used yet" rather than "no reading".
+  const readingText = $derived(
+    reading.percent === null ? '—' : String(Math.round(reading.percent)),
+  );
 </script>
 
 <div class="satellite" data-testid="satellite-ring">
@@ -18,23 +26,43 @@
       stale={model.stale}
       name={model.providerName}
     />
-  {/if}
-  <div class="logo"><ProviderLogo provider={model.provider} /></div>
-  {#if model.system !== 'active'}
+    <!-- The 5-hour window, falling back to the weekly one only when 5H has no
+         reading at all — see `satelliteReading`. Never "whichever is worse":
+         at this size the `5H`/`WK` labels are hidden, so a number that switched
+         on severity would leave no way to tell which limit it meant, while one
+         that switches only on absence is disambiguated by the empty arc beside
+         it. The ring's own aria-label already carries the figure, so this is
+         `aria-hidden`: the visual duplicate, not a second fact. -->
+    <div
+      class="readout"
+      class:stale={model.stale}
+      data-testid="satellite-readout"
+      data-severity={reading.severity}
+      data-window={reading.window}
+      aria-hidden="true"
+    >
+      {readingText}
+    </div>
+  {:else}
     <div class="satellite-badge"><SystemBadge system={model.system} /></div>
   {/if}
 </div>
 
 <style>
-  /* 40% of the big ring, pinned lower-right and overlapping it by about a
-     third. The negative offsets deliberately push it outside the overlay box —
-     the overlay window has room, and nothing clips. */
+  /* 36% of the big ring, centred on the horizontal axis a full
+     `SATELLITE_DISTANCE` to the right — far enough that the two circles no
+     longer touch, and placed so their outer common tangents converge to the
+     right. Both coordinates come from `orbitPath.ts` through custom properties;
+     the numbers must not be repeated here or the walkers would orbit a circle
+     the ring no longer occupies. Positioning by centre rather than by edge
+     offsets is what lets the ring and its hit surface share one source. */
   .satellite {
     position: absolute;
-    right: var(--satellite-right);
-    bottom: var(--satellite-bottom);
+    left: var(--satellite-center-x);
+    top: var(--satellite-center-y);
     width: var(--satellite-size);
     height: var(--satellite-size);
+    transform: translate(-50%, -50%);
   }
   .puck {
     position: absolute;
@@ -59,13 +87,47 @@
   }
   /* The one exception: 5H / WK render at about 4px here, and they sit outside
      the viewBox, so they would spill over the big ring rather than label
-     anything. */
+     anything. Hiding them is what forces the readout to mean a fixed window. */
   .satellite :global(.ring-label) {
     display: none;
   }
-  .logo {
+  /* Sized in pixels from `model.size`, not in `%` or `em`: a percentage
+     font-size resolves against the inherited font size, which knows nothing
+     about how wide the overlay was clamped to. */
+  .readout {
     position: absolute;
-    inset: 26%;
+    display: grid;
+    inset: 0;
+    place-items: center;
+    color: var(--sev-unknown);
+    /* `ui-rounded` resolves to SF Pro Rounded on macOS without shipping a font
+       file — Apple's licence does not cover redistribution on Windows or Linux,
+       which both fall through to the mono stack. Tabular figures keep the glyph
+       advance identical across all three so the number does not shift width as
+       the value changes. */
+    font-family: ui-rounded, var(--font-mono);
+    font-size: var(--satellite-readout-size);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+  /* The number and the upper arc report the same window, so they carry the same
+     colour. A neutral readout over a coloured arc would read as two facts. */
+  .readout[data-severity='ok'] {
+    color: var(--sev-ok);
+  }
+  .readout[data-severity='warn'] {
+    color: var(--sev-warn);
+  }
+  .readout[data-severity='critical'] {
+    color: var(--sev-critical);
+  }
+  .readout[data-severity='exhausted'] {
+    color: var(--sev-exhausted);
+  }
+  .readout.stale {
+    opacity: var(--overlay-stale-dim);
   }
   .satellite-badge {
     position: absolute;

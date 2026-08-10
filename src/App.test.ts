@@ -13,6 +13,7 @@ import type {
   UpdateStateWire,
 } from './lib/api/gateway';
 import type { NotificationAdapter } from './lib/interaction/notificationPolicy';
+import { OVERLAY_BOUNDS_FACTOR } from './lib/components/orbitPath';
 
 const active = (
   provider: 'claude' | 'codex',
@@ -1218,15 +1219,23 @@ describe('ring mode wiring', () => {
 
     const satellite = await screen.findByTestId('satellite-ring');
     // Primary is claude, so the satellite must carry codex — and codex's own
-    // numbers (5-hour 20), not a second copy of the primary's (91).
+    // numbers (5-hour 20), not a second copy of the primary's (91). The mark
+    // rides the satellite's orbit; the ring itself carries the reading.
     expect(
-      satellite.querySelector('[data-testid="provider-logo-codex"]'),
+      screen
+        .getByTestId('satellite-orbit-walker')
+        .querySelector('[data-testid="provider-logo-codex"]'),
     ).not.toBeNull();
     expect(
       satellite
         .querySelector('[data-testid="usage-ring"]')
         ?.getAttribute('aria-label'),
     ).toBe('Codex usage: 5-hour 20%, Weekly 40%');
+    expect(
+      satellite
+        .querySelector('[data-testid="satellite-readout"]')
+        ?.textContent?.trim(),
+    ).toBe('20');
   });
 
   it('keeps the walker on the primary and follows a primary change', async () => {
@@ -1242,10 +1251,11 @@ describe('ring mode wiring', () => {
     expect(
       walker.querySelector('[data-testid="provider-logo-codex"]'),
     ).not.toBeNull();
-    // The satellite is derived, never stored, so flipping the primary flips it.
+    // The satellite is derived, never stored, so flipping the primary flips it
+    // — and its mark with it.
     expect(
       screen
-        .getByTestId('satellite-ring')
+        .getByTestId('satellite-orbit-walker')
         .querySelector('[data-testid="provider-logo-claude"]'),
     ).not.toBeNull();
   });
@@ -1259,6 +1269,9 @@ describe('ring mode wiring', () => {
 
     expect(await screen.findByTestId('orbit-walker')).toBeTruthy();
     expect(screen.queryByTestId('satellite-ring')).toBeNull();
+    // Without this the satellite's own mark could leak into single mode and
+    // nothing here would notice — the primary's walker would still be present.
+    expect(screen.queryByTestId('satellite-orbit-walker')).toBeNull();
   });
 
   it('does not let ring mode reach notification routing', async () => {
@@ -1296,19 +1309,28 @@ describe('ring mode wiring', () => {
     );
   });
 
-  it('narrows the pet for a bubble instead of letting CSS clamp it', async () => {
-    // The walker's `offset-path` is absolute pixels against `model.size`, so a
-    // width only the stylesheet knew about would leave the mark orbiting a
-    // circle that is no longer there. The fixture pet is 160px; the bubble
-    // ceiling is 152.
+  it('sizes the pet from the model rather than letting CSS clamp it', async () => {
+    // Both walkers' `offset-path` values are absolute pixels against
+    // `model.size`, so a width only the stylesheet knew about would leave the
+    // marks orbiting circles that are no longer there.
+    //
+    // The fixture pet asks for 160px. Since the satellite moved out to the
+    // right, the walkers' reach caps the overlay below that — and below the
+    // 152px bubble ceiling too, so raising a bubble no longer narrows anything.
+    // Should the geometry ever pull back inside 152, this assertion fails and
+    // the bubble path needs covering again.
+    const bounded = 240 / OVERLAY_BOUNDS_FACTOR;
+    expect(bounded).toBeLessThan(152);
+    expect(bounded).toBeLessThan(160);
+
     const { gateway, emit } = fixture();
     render(App, { props: { gateway, notificationAdapter: notifications } });
     const overlay = await screen.findByLabelText('CacheBite pet status');
-    expect(overlay.style.width).toBe('160px');
+    expect(overlay.style.width).toBe(`${bounded}px`);
 
     emit(active('claude', 2, 100));
     await screen.findByTestId('overlay-toast');
 
-    await waitFor(() => expect(overlay.style.width).toBe('152px'));
+    await waitFor(() => expect(overlay.style.width).toBe(`${bounded}px`));
   });
 });

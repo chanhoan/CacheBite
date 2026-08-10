@@ -111,6 +111,104 @@ describe('CacheBite renderer fixture flows', () => {
     expect(hits.corner).not.toBe('overlay-pointer-surface');
   });
 
+  // jsdom computes no motion paths and no stacking, so the unit tests can only
+  // prove the geometry module's arithmetic. These two specs are the only place
+  // a real engine is asked whether it draws that arithmetic.
+  it('rides both marks on their own circles and stacks them for depth', async () => {
+    await browser.url('/?window=overlay&fixture=e2e&ring=double');
+    await expect($('[data-testid="satellite-ring"]')).toBeDisplayed();
+    await expect($('[data-testid="satellite-orbit-walker"]')).toBeDisplayed();
+
+    const scene = await browser.execute(() => {
+      const measure = (selector: string) => {
+        const node = document.querySelector<HTMLElement>(selector);
+        if (!node) throw new Error(`${selector} missing`);
+        const rect = node.getBoundingClientRect();
+        return {
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          zIndex: getComputedStyle(node).zIndex,
+        };
+      };
+      return {
+        overlay: measure('section[aria-label="CacheBite pet status"]'),
+        bigMark: measure('[data-testid="orbit-walker"]'),
+        smallMark: measure('[data-testid="satellite-orbit-walker"]'),
+        satellite: measure('[data-testid="satellite-ring"]'),
+        ring: measure('section[aria-label="CacheBite pet status"] > .ring'),
+      };
+    });
+
+    const size = scene.overlay.width;
+    const from = (
+      a: { x: number; y: number },
+      b: { x: number; y: number },
+    ): number => Math.hypot(a.x - b.x, a.y - b.y) / size;
+
+    // Orbit radii from `orbitPath.ts`, as fractions of the overlay box:
+    // 45.25 + 7 for the primary, 18 + 4.5 for the satellite. Getting these
+    // means `offset-path` ran — without it both marks stay pinned at the
+    // overlay's top-left corner, which is the documented degradation.
+    expect(from(scene.bigMark, scene.overlay)).toBeCloseTo(0.5225, 2);
+    expect(from(scene.smallMark, scene.satellite)).toBeCloseTo(0.225, 2);
+
+    // The size clamp has to survive the marks' rotation: `offset-rotate: auto`
+    // turns each square, so its axis-aligned corner reaches further than half
+    // its side. `OVERLAY_BOUNDS_FACTOR / 2` is the half-extent that budgets for.
+    const reach = size * 0.9186;
+    for (const mark of [scene.bigMark, scene.smallMark]) {
+      expect(mark.left).toBeGreaterThanOrEqual(scene.overlay.x - reach - 1);
+      expect(mark.right).toBeLessThanOrEqual(scene.overlay.x + reach + 1);
+      expect(mark.top).toBeGreaterThanOrEqual(scene.overlay.y - reach - 1);
+      expect(mark.bottom).toBeLessThanOrEqual(scene.overlay.y + reach + 1);
+    }
+
+    // Depth runs by group, not by element: the near ring's mark passes in front
+    // of the far ring, and the far ring's mark passes behind the near one.
+    // Scoped-CSS breakage would show up here as an `auto` where a number
+    // belongs, which no unit test can see.
+    expect(scene.bigMark.zIndex).toBe('3');
+    expect(scene.ring.zIndex).toBe('1');
+    expect(scene.smallMark.zIndex).toBe('0');
+  });
+
+  it('routes a press on the satellite puck to its own drag surface', async () => {
+    await browser.url('/?window=overlay&fixture=e2e&ring=double');
+    await expect(
+      $('[data-testid="overlay-satellite-pointer-surface"]'),
+    ).toBeExisting();
+
+    const hits = await browser.execute(() => {
+      const satellite = document.querySelector<HTMLElement>(
+        '[data-testid="satellite-ring"]',
+      );
+      if (!satellite) throw new Error('satellite ring missing');
+      const rect = satellite.getBoundingClientRect();
+      return {
+        centre: document
+          .elementFromPoint(
+            rect.left + rect.width / 2,
+            rect.top + rect.height / 2,
+          )
+          ?.getAttribute('data-testid'),
+        corner: document
+          .elementFromPoint(rect.left + 1, rect.top + 1)
+          ?.getAttribute('data-testid'),
+      };
+    });
+
+    // The puck sits outside the pet's circular surface, so without its own hit
+    // area it would be a dead zone in the middle of the drag gesture.
+    expect(hits.centre).toBe('overlay-satellite-pointer-surface');
+    // Clipped to a circle like the pet's, so the bounding box corner misses.
+    expect(hits.corner).not.toBe('overlay-satellite-pointer-surface');
+  });
+
   it('hydrates provider panel and reaches settings via the footer button', async () => {
     await browser.url('/?window=panel&fixture=e2e');
     await expect($('section[aria-label="Usage panel"]')).toHaveText(

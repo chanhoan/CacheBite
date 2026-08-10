@@ -565,12 +565,18 @@
   // A speech bubble has to share the overlay window with the pet, so the pet
   // gives up width while one is up. This is the ceiling it drops to.
   const TOAST_OVERLAY_PX = 152;
-  // The bubble's clamp belongs here rather than in CSS. The walker's
-  // `offset-path` is absolute pixels measured against the overlay box — CSS
-  // `path()` takes no percentages — so a width that the stylesheet narrows but
-  // `model.size` still reports at its old value would leave the mark orbiting a
-  // circle the ring no longer occupies. One source of truth for the rendered
-  // width, and everything sized from it follows.
+  // The bubble's clamp belongs here rather than in CSS. The walkers'
+  // `offset-path` values are absolute pixels measured against the overlay box —
+  // CSS `path()` takes no percentages — so a width that the stylesheet narrows
+  // but `model.size` still reports at its old value would leave the marks
+  // orbiting circles the rings no longer occupy. One source of truth for the
+  // rendered width, and everything sized from it follows.
+  //
+  // Note this ceiling does not currently bind: since the satellite moved out,
+  // `OVERLAY_BOUNDS_FACTOR` already clamps below 152, so `Math.min` never
+  // reaches it. Kept because the reasoning above survives any geometry, and
+  // `App.test.ts` pins the ordering — if the clamp ever rises back past 152
+  // that assertion fails and the bubble path needs covering again.
   const sizeCeiling = $derived(
     $interactionStore.bubblePolicy.bubble
       ? TOAST_OVERLAY_PX

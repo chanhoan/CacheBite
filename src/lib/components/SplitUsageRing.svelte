@@ -1,12 +1,15 @@
 <script>
+  import { clampPercent } from './ringReadout';
+
   /** @type {{ session: import('./models').RingWindowModel; weekly: import('./models').RingWindowModel; stale: boolean; name?: string }} */
   let { session, weekly, stale, name = 'Provider' } = $props();
 
+  // Zero, not the helper's `null`: an arc with no data draws an empty track,
+  // and `stroke-dasharray: null 100` would drop the path entirely. The
+  // satellite's readout wants the same clamp but renders absence as an em dash,
+  // which is why the shared helper keeps the two cases apart.
   /** @param {import('./models').RingWindowModel} window */
-  const percent = (window) =>
-    window.usedPercent === null || !Number.isFinite(window.usedPercent)
-      ? 0
-      : Math.min(100, Math.max(0, window.usedPercent));
+  const percent = (window) => clampPercent(window) ?? 0;
   /** @param {string} name @param {import('./models').RingWindowModel} window */
   const label = (name, window) =>
     `${name} ${window.severity === 'unknown' ? 'unknown' : `${Math.round(percent(window))}%`}`;
