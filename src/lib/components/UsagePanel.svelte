@@ -1,29 +1,38 @@
 <script>
-  import ProviderTabs from './ProviderTabs.svelte';
-  import UsageGauge from './UsageGauge.svelte';
-  import { capturedAgo } from '../format/time.js';
+  import ProviderColumn from './ProviderColumn.svelte';
   import { PROVIDER_NAME } from '../contracts/domain';
-  import { systemGuidance } from './systemGuidance.js';
+  import { primaryCandidate, visiblePanelProviders } from './panelModels.js';
   /** @typedef {import('./panelModels').PanelProviderModel} PanelProvider */
-  /** @type {{ providers: { claude: PanelProvider; codex: PanelProvider }; selected: import('../contracts/domain').Provider; primary?: import('../contracts/domain').Provider; refreshing: boolean; nowMs?: number; updateAvailable?: boolean; onRefresh?: (provider: import('../contracts/domain').Provider) => void; onSelect?: (provider: import('../contracts/domain').Provider) => void; onPrimary?: (provider: import('../contracts/domain').Provider) => void; onSettings?: () => void; onClose?: () => void; onQuit?: () => void }} */
+  /** @typedef {import('../contracts/domain').Provider} Provider */
+  /** @type {{ providers: { claude: PanelProvider; codex: PanelProvider }; primary: Provider; refreshing: Readonly<Record<Provider, boolean>>; nowMs?: number; updateAvailable?: boolean; onRefresh?: (provider: Provider) => void; onPrimary?: (provider: Provider) => void; onSettings?: () => void; onClose?: () => void; onQuit?: () => void }} */
   let {
     providers,
-    selected,
-    primary = selected,
+    primary,
     refreshing,
     nowMs = Date.now(),
     updateAvailable = false,
     onRefresh = () => {},
-    onSelect = () => {},
     onPrimary = () => {},
     onSettings = () => {},
     onClose = () => {},
     onQuit = () => {},
   } = $props();
-  const current = $derived(providers[selected]);
-  const guidance = $derived(systemGuidance(current.system, selected));
-  const captured = $derived(
-    current.capturedAt === null ? null : capturedAgo(current.capturedAt, nowMs),
+  const visible = $derived(visiblePanelProviders(providers));
+  const candidate = $derived(primaryCandidate(visible, primary));
+  // One button that re-reads everything on screen. Disabled while any of them
+  // is still debounced — a request to the rest would only be dropped by the
+  // native debounce, so letting it fire buys nothing and hides the fact that
+  // the previous press is still in flight.
+  const refreshBusy = $derived(
+    visible.some((provider) => refreshing[provider]),
+  );
+  const refreshLabel = $derived(
+    visible.length > 1 ? 'Refresh both' : 'Refresh now',
+  );
+  const primaryLabel = $derived(
+    candidate === null
+      ? 'Set as primary'
+      : `Set ${PROVIDER_NAME[candidate]} as primary`,
   );
 </script>
 
@@ -35,63 +44,31 @@
     title="Close usage panel"
     onclick={() => onClose()}>×</button
   >
-  <h2 class="visually-hidden">Usage panel</h2>
-  <header>
-    <ProviderTabs {selected} {primary} {onSelect} />
-  </header>
-  <div class="body">
-    {#if current.system === 'loading'}
-      <div
-        class="skeleton"
-        data-testid="usage-skeleton"
-        aria-label="Loading usage"
-      >
-        Loading…
-      </div>
-    {:else}
-      <div class="provider-heading">
-        <strong>{PROVIDER_NAME[selected]}</strong>
-        {#if current.planType}<span class="plan-chip">{current.planType}</span
-          >{/if}
-      </div>
-      <UsageGauge
-        label="5-hour"
-        window={current.session}
-        stale={current.stale}
+  <header><h2>Usage</h2></header>
+  <div class="body" style="--panel-columns: {visible.length};">
+    {#each visible as provider (provider)}
+      <ProviderColumn
+        model={providers[provider]}
+        isPrimary={provider === primary}
         {nowMs}
       />
-      <UsageGauge
-        label="Weekly"
-        window={current.weekly}
-        stale={current.stale}
-        {nowMs}
-      />
-      <small class:stale={current.stale} class="freshness"
-        >● {current.stale
-          ? 'Stale'
-          : 'Fresh'}{#if current.capturedAt && captured}<span
-            >&nbsp;· captured <time datetime={current.capturedAt}
-              >{captured}</time
-            ></span
-          >{/if}</small
-      >
-    {/if}
+    {/each}
   </div>
-  <!-- Stays mounted so a state change is announced rather than re-declared;
-       only its content varies. Kept out of the grid so the empty case adds no
-       gap, and collapsed to zero height by having no line box. -->
-  <p class="guidance" role="status">{guidance ?? ''}</p>
   <footer>
     <div class="footer-row">
       <button
         class="primary-action"
-        disabled={refreshing}
-        onclick={() => onRefresh(selected)}>Refresh now</button
+        disabled={refreshBusy}
+        onclick={() => {
+          for (const provider of visible) onRefresh(provider);
+        }}>{refreshLabel}</button
       >
       <button
         class="secondary-action"
-        disabled={selected === primary}
-        onclick={() => onPrimary(selected)}>Set as primary</button
+        disabled={candidate === null}
+        onclick={() => {
+          if (candidate !== null) onPrimary(candidate);
+        }}>{primaryLabel}</button
       >
     </div>
     <div class="footer-row">
@@ -151,41 +128,28 @@
     background: var(--color-surface-sunken);
     color: var(--color-text);
   }
+  /* The tab strip used to draw this rule; with the tabs gone the header owns
+     it, so the seam between header and body stays where it always was. */
   header {
-    padding: var(--space-3) var(--space-4) 0;
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--color-border);
   }
+  header h2 {
+    margin: 0;
+    font-size: 0.8125rem;
+    font-weight: 700;
+  }
+  /* Padding lives on the columns, not here — otherwise the divider stops short
+     of the body's edges instead of splitting it top to bottom. */
   .body {
     display: grid;
-    gap: var(--space-4);
-    padding: var(--space-4);
+    grid-template-columns: repeat(var(--panel-columns, 1), minmax(0, 1fr));
+    padding: 0;
   }
-  .provider-heading {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-  .plan-chip {
-    padding: 0.15rem 0.5rem;
-    border-radius: 999px;
-    background: var(--color-surface-sunken);
-    color: var(--color-text-muted);
-    font-size: 0.6875rem;
-    text-transform: capitalize;
-  }
-  .freshness {
-    overflow: hidden;
-    color: var(--sev-ok);
-    font-family: var(--font-mono);
-    font-size: 0.6875rem;
-    white-space: nowrap;
-  }
-  .freshness.stale {
-    color: var(--color-text-faint);
-  }
-  .skeleton {
-    padding: 2rem;
-    color: var(--color-text-muted);
-    text-align: center;
+  /* `:global` is required: the columns are a child component's markup, which
+     this component's scoped styles cannot reach. */
+  .body :global(.column + .column) {
+    border-left: 1px solid var(--color-border);
   }
   footer {
     display: grid;
@@ -265,12 +229,5 @@
   .ghost-action.quit:hover,
   .ghost-action.quit:focus-visible {
     color: var(--sev-exhausted);
-  }
-  .guidance {
-    padding: 0 var(--space-4);
-    margin: 0;
-    color: var(--color-text-muted);
-    font-size: 0.75rem;
-    line-height: 1.45;
   }
 </style>

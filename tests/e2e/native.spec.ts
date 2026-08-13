@@ -386,9 +386,11 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
         await expect($('button=Settings')).toExist();
         await expect($('[data-testid="settings-update-dot"]')).not.toExist();
 
-        // Usage collection is untouched by a failed update check.
+        // Usage collection is untouched by a failed update check. Both fixture
+        // providers report unavailable, so neither is connected and the panel
+        // keeps both columns — which is what makes this `Refresh both`.
         await expect($('section[aria-label="Usage panel"]')).toExist();
-        await $('button=Refresh now').click();
+        await $('button=Refresh both').click();
         await expect($('section[aria-label="Usage panel"]')).toExist();
         await $('button=Settings').click();
         await expect($('.update-available-row')).not.toExist();
@@ -413,9 +415,11 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
     it('shows credential-free production provider states after panel hydration', async () => {
       await showPanelFromOverlayWindow();
 
-      const claudeTab = $('button[role="tab"]=Claude');
-      await claudeTab.click();
-      await expect(claudeTab).toHaveAttribute('aria-selected', 'true');
+      // Neither provider is connected in the production composition, so the
+      // panel keeps both columns rather than collapsing to one.
+      const claudeColumn = $('[data-provider="claude"]');
+      await expect(claudeColumn).toExist();
+      await expect($('[data-provider="codex"]')).toExist();
       const panelText = await $('section[aria-label="Usage panel"]').getText();
       expect(panelText).not.toMatch(/oauth_api|cli_rpc|cached/);
 
@@ -460,20 +464,24 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
       expect(providerStates.value.claude.snapshot).toBeNull();
       expect(providerStates.value.codex.snapshot).toBeNull();
 
-      const codexTab = $('button[role="tab"]=Codex');
       try {
-        await codexTab.click();
-        await expect(codexTab).toHaveAttribute('aria-selected', 'true');
-        await expect(claudeTab).toHaveAttribute(
+        await expect(claudeColumn).toHaveAttribute(
           'aria-label',
-          'Claude (primary)',
+          'Claude usage (primary)',
         );
-        const setPrimary = $('button=Set as primary');
-        await expect(setPrimary).toBeEnabled();
-        await setPrimary.click();
+        // The control names its target rather than following a selection, so
+        // promoting the other provider takes one click and no tab switch.
+        const promoteCodex = $('button=Set Codex as primary');
+        await expect(promoteCodex).toBeEnabled();
+        await promoteCodex.click();
         await waitForPersistedPrimary('codex');
-        await expect(codexTab).toHaveAttribute('aria-label', 'Codex (primary)');
-        await browser.waitUntil(async () => !(await setPrimary.isEnabled()));
+        await expect($('[data-provider="codex"]')).toHaveAttribute(
+          'aria-label',
+          'Codex usage (primary)',
+        );
+        // The candidate flips to the other side instead of going away: with
+        // both columns on screen there is always one provider left to offer.
+        await expect($('button=Set Claude as primary')).toBeEnabled();
         await expect($('body')).not.toHaveText(
           expect.stringContaining('Settings could not be saved'),
         );
@@ -481,13 +489,12 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
           expect.stringContaining('autostart integration is unavailable'),
         );
       } finally {
-        await claudeTab.click();
-        const setPrimary = $('button=Set as primary');
-        if (await setPrimary.isEnabled()) await setPrimary.click();
+        const promoteClaude = $('button=Set Claude as primary');
+        if (await promoteClaude.isExisting()) await promoteClaude.click();
         await waitForPersistedPrimary('claude');
-        await expect(claudeTab).toHaveAttribute(
+        await expect(claudeColumn).toHaveAttribute(
           'aria-label',
-          'Claude (primary)',
+          'Claude usage (primary)',
         );
       }
     });

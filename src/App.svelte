@@ -777,16 +777,12 @@
       <UsagePanel
         updateAvailable={availableUpdateVersion !== null}
         providers={panelProviders}
-        selected={$providersStore.selected}
         primary={$settingsStore.primaryProvider}
-        refreshing={$providersStore.refreshing[$providersStore.selected]}
+        refreshing={$providersStore.refreshing}
         {nowMs}
         onClose={() => void gateway.hidePanel()}
         onQuit={() => void gateway.quit()}
         onSettings={() => (showSettings = true)}
-        onSelect={(provider) => {
-          providersStore.selectTab(provider);
-        }}
         onRefresh={(provider) => providersStore.requestRefresh(provider)}
         onPrimary={(provider) =>
           void changeSettings({ ...$settingsStore, primaryProvider: provider })}

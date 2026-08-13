@@ -33,11 +33,31 @@ const provider = (name: 'claude' | 'codex'): ProviderBackendStateWire => ({
   reset_pending: false,
 });
 
+/**
+ * An unconnected provider: no snapshot, only `not_installed`. The renderer
+ * derives `unavailable` from that, which is what makes the panel drop its
+ * column — the single-column layout has no other way to be reached.
+ */
+const disconnected = (name: 'claude' | 'codex'): ProviderBackendStateWire => ({
+  provider: name,
+  revision: 1,
+  snapshot: null,
+  failure_class: null,
+  unavailable_reason: 'not_installed',
+  expired: false,
+  reset_pending: false,
+});
+
 export const rendererFixtureGateway: AppGateway = {
   getCollectorMode: async () => ({ claude: 'fixture', codex: 'fixture' }),
   getProviderStates: async () => ({
     claude: provider('claude'),
-    codex: provider('codex'),
+    // Opened only by `?panel=single`. The default keeps both providers
+    // connected so every spec written against the two-column panel stays on it.
+    codex:
+      new URLSearchParams(window.location.search).get('panel') === 'single'
+        ? disconnected('codex')
+        : provider('codex'),
   }),
   getSettings: async () => ({
     schemaVersion: 6,

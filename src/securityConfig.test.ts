@@ -35,7 +35,7 @@ describe('desktop content security policy', () => {
       shadow: false,
     });
     expect(panel).toMatchObject({
-      width: 312,
+      width: 380,
       transparent: true,
       decorations: false,
       resizable: false,

@@ -29,14 +29,6 @@ describe('providers store', () => {
     expect(get(store).codex.revision).toBe(2);
   });
 
-  it('switches the viewed tab locally without refreshing', () => {
-    const refresh = vi.fn();
-    const store = createProvidersStore(refresh);
-    store.selectTab('codex');
-    expect(get(store).selected).toBe('codex');
-    expect(refresh).not.toHaveBeenCalled();
-  });
-
   it('marks a provider refreshing until its next state event arrives', () => {
     const store = createProvidersStore(vi.fn());
     store.requestRefresh('claude');

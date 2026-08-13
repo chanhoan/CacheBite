@@ -115,7 +115,7 @@ fn panel_anchor_flips_then_clamps_inside_display() {
     );
 }
 
-/// 1920x1080 with a 48px taskbar leaves a 1032px work area. A 312x520 panel
+/// 1920x1080 with a 48px taskbar leaves a 1032px work area. A 380x520 panel
 /// anchored to a pet parked at the bottom must not slide under the taskbar.
 #[test]
 fn panel_anchor_keeps_panel_above_taskbar_for_bottom_pet() {
@@ -132,7 +132,7 @@ fn panel_anchor_keeps_panel_above_taskbar_for_bottom_pet() {
         height: 240.0,
     };
     let panel = Size {
-        width: 312.0,
+        width: 380.0,
         height: 520.0,
     };
 
@@ -162,7 +162,7 @@ fn panel_anchor_centers_vertically_on_pet_when_space_allows() {
         anchor_panel(
             pet,
             Size {
-                width: 312.0,
+                width: 380.0,
                 height: 520.0
             },
             work_area,
@@ -195,7 +195,7 @@ fn panel_anchor_clamps_to_work_area_top_for_top_pet() {
         anchor_panel(
             pet,
             Size {
-                width: 312.0,
+                width: 380.0,
                 height: 520.0
             },
             work_area,
@@ -225,13 +225,45 @@ fn panel_anchor_pins_oversized_panel_to_work_area_top() {
         anchor_panel(
             pet,
             Size {
-                width: 312.0,
+                width: 380.0,
                 height: 1200.0
             },
             work_area,
             12.0
         ),
         Point { x: 352.0, y: 0.0 }
+    );
+}
+
+/// The widened panel flips to the pet's left where the narrower one still fit
+/// on its right. The gap is picked from the band that accepts 312 but not 380
+/// (`right + 312 <= 1920 < right + 380`), so this pins that the width change
+/// actually moved the placement branch — every other anchor case above lands on
+/// the same coordinates it did at 312 and would pass either way.
+#[test]
+fn panel_anchor_flips_left_when_widened_panel_no_longer_fits_right() {
+    let work_area = Rect {
+        x: 0.0,
+        y: 0.0,
+        width: 1920.0,
+        height: 1032.0,
+    };
+    let pet = Rect {
+        x: 1300.0,
+        y: 400.0,
+        width: 240.0,
+        height: 240.0,
+    };
+    let panel = Size {
+        width: 380.0,
+        height: 520.0,
+    };
+
+    // right = 1300 + 240 + 12 = 1552; 1552 + 380 = 1932 > 1920, so it flips to
+    // 1300 - 12 - 380 = 908.
+    assert_eq!(
+        anchor_panel(pet, panel, work_area, 12.0),
+        Point { x: 908.0, y: 260.0 }
     );
 }
 
