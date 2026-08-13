@@ -5,6 +5,7 @@ import {
   orbitPath,
   OVERLAY_BOUNDS_FACTOR,
   RING_OUTER_RADIUS,
+  SATELLITE_BADGE_RATIO,
   SATELLITE_BEARING,
   SATELLITE_CENTER,
   SATELLITE_DISTANCE,
@@ -187,6 +188,18 @@ describe('orbitPath', () => {
     const widestReading = 3 * SATELLITE_READOUT_RATIO * 0.62 * 100;
 
     expect(widestReading).toBeLessThan(clearWidth);
+  });
+
+  it('sizes the badge like the reading it stands in for', () => {
+    const clearWidth = 2 * (42 - 6.5 / 2);
+    const widestReading = 3 * SATELLITE_READOUT_RATIO * 0.62 * 100;
+    const badge = SATELLITE_BADGE_RATIO * 100;
+
+    // The badge replaces the number in the same middle, so it takes the number's
+    // footprint: a puck whose weight jumped as a provider dropped out would read
+    // as a layout change rather than a status change.
+    expect(Math.abs(badge - widestReading)).toBeLessThan(2);
+    expect(badge).toBeLessThan(clearWidth);
   });
 
   it('reserves enough room for the walkers, the outermost elements', () => {

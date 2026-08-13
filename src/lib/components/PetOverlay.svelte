@@ -7,6 +7,7 @@
   import {
     orbitPath,
     satelliteOrbitPath,
+    SATELLITE_BADGE_RATIO,
     SATELLITE_CENTER,
     SATELLITE_READOUT_RATIO,
     SATELLITE_SIZE,
@@ -55,6 +56,7 @@
   style:--satellite-center-x={`${SATELLITE_CENTER.x}%`}
   style:--satellite-center-y={`${SATELLITE_CENTER.y}%`}
   style:--satellite-readout-size={`${(model.size * SATELLITE_SIZE * SATELLITE_READOUT_RATIO) / 100}px`}
+  style:--satellite-badge-size={`${(model.size * SATELLITE_SIZE * SATELLITE_BADGE_RATIO) / 100}px`}
   style:--walk-duration={`${WALK_DURATION_S}s`}
   style:--satellite-walk-duration={`${SATELLITE_WALK_DURATION_S.toFixed(3)}s`}
 >

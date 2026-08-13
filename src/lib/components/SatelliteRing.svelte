@@ -129,9 +129,22 @@
   .readout.stale {
     opacity: var(--overlay-stale-dim);
   }
+  /* Centred on exactly the disc the readout occupies, because it is the same
+     fact in another form: the puck's middle says what the provider is doing,
+     and swapping a number for a badge must not move that statement. Anchored to
+     a corner it landed outside the circle the puck actually draws, so it read as
+     something stuck onto the satellite rather than as the satellite's own state.
+
+     The size comes from `orbitPath` through `PetOverlay` for the same reason the
+     readout's does: `SystemBadge`'s own 2rem chip knows nothing about how wide
+     the overlay was clamped to, and at 36% of the box it would nearly fill the
+     puck. */
   .satellite-badge {
+    --badge-size: var(--satellite-badge-size);
+
     position: absolute;
-    right: 0;
-    bottom: 0;
+    display: grid;
+    inset: 0;
+    place-items: center;
   }
 </style>

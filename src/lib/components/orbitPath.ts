@@ -125,6 +125,20 @@ const SMALL_ORBIT = SATELLITE_RADIUS + SATELLITE_WALKER_RADIUS;
  */
 export const SATELLITE_READOUT_RATIO = 0.33;
 
+/**
+ * Diameter of the badge that stands in for the readout when the satellite's
+ * provider is not reporting, in the same currency and for the same reason:
+ * `SystemBadge` sizes its chip in `rem`, which knows nothing about how wide the
+ * overlay was clamped to, so at the puck's 36% a fixed 2rem chip covers nearly
+ * the whole disc.
+ *
+ * Matched to the reading it replaces rather than to the puck, so the middle of
+ * the puck carries the same weight whichever one is showing: the widest
+ * three-digit readout spans about 0.61 of the box, which also keeps the badge
+ * inside the 77.5% clear space the readout is measured against.
+ */
+export const SATELLITE_BADGE_RATIO = 0.6;
+
 /** One full lap for the primary's mark. */
 export const WALK_DURATION_S = 26;
 /**
