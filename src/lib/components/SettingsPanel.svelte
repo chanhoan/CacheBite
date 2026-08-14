@@ -30,6 +30,9 @@
   /** @param {string} value @returns {import('../contracts/domain').Provider} */
   const asProvider = (value) => (value === 'codex' ? 'codex' : 'claude');
 
+  /** @param {string} value @returns {import('../contracts/domain').RingMode} */
+  const asRingMode = (value) => (value === 'double' ? 'double' : 'single');
+
   /** @param {string} value @returns {import('../state/theme').ThemePreference} */
   const asTheme = (value) =>
     value === 'light' ? 'light' : value === 'dark' ? 'dark' : 'system';
@@ -95,6 +98,22 @@
       ></select
     ></label
   >
+  <!-- Sits directly under Primary provider: that control is the answer to
+       "which one is the big ring". -->
+  <label class="field"
+    >Ring <select
+      value={settings.ringMode}
+      onchange={(event) =>
+        onChange({
+          ...settings,
+          ringMode: asRingMode(event.currentTarget.value),
+        })}
+      ><option value="single">Single</option><option value="double"
+        >Double</option
+      ></select
+    ></label
+  >
+  <p class="field-help">Double adds a small ring for the second provider.</p>
   <label class="field"
     >Pet <select
       value={settings.selectedPetId}

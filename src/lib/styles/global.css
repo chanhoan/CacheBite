@@ -22,7 +22,7 @@ main {
 }
 
 main.panel {
-  width: min(19.5rem, 100%);
+  width: min(23.75rem, 100%);
   min-height: 0;
   padding: 0;
   overflow: hidden;

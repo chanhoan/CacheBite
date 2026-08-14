@@ -5,6 +5,16 @@
   --sev-critical: #f97316;
   --sev-exhausted: #dc2626;
   --sev-unknown: #c3c8ce;
+  /* Provider marks. Brand colours sampled from the source art, so they are
+     deliberately identical in both themes — a recoloured logo is a different
+     logo. Declared here only so no component hardcodes a hex. */
+  --logo-claude: #d97757;
+  --logo-codex-from: #aca6ff;
+  --logo-codex-to: #3d46ff;
+  /* Backdrop for the satellite ring. Deliberately theme-invariant: both marks
+     were drawn to sit on a dark field, and the Codex glyphs are knockouts, so
+     a puck that flipped to white in light mode showed white prompt glyphs. */
+  --satellite-puck: #1c1f24;
   --color-text: #16191d;
   --color-text-muted: #5b6169;
   --color-text-faint: #8a9099;

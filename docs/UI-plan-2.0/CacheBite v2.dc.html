@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  body{margin:0;background:#eceef1;color:#16191d;font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased;}
+  a{color:#3b5bdb;text-decoration:none;} a:hover{color:#2942b8;text-decoration:underline;}
+  .mono{font-family:'IBM Plex Mono',ui-monospace,monospace;}
+</style>
+</helmet>
+
+<div style="padding:56px 56px 90px;display:flex;flex-direction:column;gap:44px;max-width:1320px;">
+
+  <header style="display:flex;flex-direction:column;gap:18px;">
+    <div style="display:flex;align-items:center;gap:14px;">
+      <div style="width:38px;height:38px;border-radius:10px;background:#16191d;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:19px;">C</div>
+      <div style="display:flex;flex-direction:column;">
+        <span class="mono" style="font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#9aa0a6;">CacheBite · v2 draft</span>
+        <h1 style="margin:2px 0 0;font-size:27px;font-weight:700;letter-spacing:-.02em;">Ring mode — single or double</h1>
+      </div>
+    </div>
+    <p style="margin:0;max-width:820px;font-size:15px;line-height:1.6;color:#5b6169;">v2 lets one overlay carry both providers. The pet is now <b>cosmetic and user-chosen</b> — it no longer encodes a provider — so the meaningful choice moves to the <b>ring</b>: <b>single</b> (one provider) or <b>double</b> (both). Same severity tokens and split-ring semantics as v1 (top arc = 5-hour, bottom arc = weekly, <span class="mono" style="font-size:13px;">5H</span> / <span class="mono" style="font-size:13px;">WK</span> labels). Panel &amp; settings are unchanged. Reference ids (<a href="#7a">7a</a>, <a href="#7b">7b</a>) in chat.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+      <span class="mono" style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#9aa0a6;margin-right:4px;">sev tokens (v1)</span>
+      <span style="display:inline-flex;align-items:center;gap:7px;background:#fff;border:1px solid #e6e8eb;border-radius:999px;padding:5px 12px 5px 8px;font-size:12.5px;font-weight:500;"><span style="width:11px;height:11px;border-radius:50%;background:#22c55e;"></span>ok · 0–69</span>
+      <span style="display:inline-flex;align-items:center;gap:7px;background:#fff;border:1px solid #e6e8eb;border-radius:999px;padding:5px 12px 5px 8px;font-size:12.5px;font-weight:500;"><span style="width:11px;height:11px;border-radius:50%;background:#f59e0b;"></span>warn · 70–89</span>
+      <span style="display:inline-flex;align-items:center;gap:7px;background:#fff;border:1px solid #e6e8eb;border-radius:999px;padding:5px 12px 5px 8px;font-size:12.5px;font-weight:500;"><span style="width:11px;height:11px;border-radius:50%;background:#f97316;"></span>critical · 90–99</span>
+      <span style="display:inline-flex;align-items:center;gap:7px;background:#fff;border:1px solid #e6e8eb;border-radius:999px;padding:5px 12px 5px 8px;font-size:12.5px;font-weight:500;"><span style="width:11px;height:11px;border-radius:50%;background:#dc2626;"></span>exhausted · 100+</span>
+    </div>
+  </header>
+
+  <!-- ============ RING MODE ============ -->
+  <section style="display:flex;flex-direction:column;gap:22px;">
+    <div style="display:flex;flex-direction:column;gap:3px;">
+      <span class="mono" style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#9aa0a6;">§4 · overlay · ring mode</span>
+      <h2 style="margin:0;font-size:22px;font-weight:700;letter-spacing:-.01em;">Pick the ring — the pet is just decoration</h2>
+      <p style="margin:4px 0 0;font-size:14.5px;color:#5b6169;max-width:860px;">A single setting toggles the overlay between the two. Default is <b>single</b>. In <b>double</b>, the big ring is auto-bound to the <b>primary</b> provider and the satellite chip to the <b>second</b> — the user never assigns them by hand. Example load: primary 5h <b>82 (warn)</b> / weekly <b>94 (critical)</b> · second 5h <b>41 (ok)</b> / weekly <b>58 (ok)</b>.</p>
+    </div>
+
+    <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:stretch;">
+
+      <!-- 7a single -->
+      <div id="7a" style="position:relative;flex:1;min-width:300px;background:#fff;border:2px solid #16191d;border-radius:18px;box-shadow:0 1px 2px rgba(20,25,30,.04),0 12px 30px rgba(20,25,30,.05);padding:26px;display:flex;flex-direction:column;gap:16px;">
+        <span class="mono" style="position:absolute;top:16px;right:16px;background:#16191d;color:#fff;font-size:11px;font-weight:600;padding:3px 9px;border-radius:7px;">7a · default</span>
+        <div style="display:flex;flex-direction:column;gap:2px;">
+          <span style="font-size:16px;font-weight:700;">Single ring</span>
+          <span style="font-size:13px;color:#7b818a;">One provider. Split ring around the chosen pet, top = 5-hour, bottom = weekly. Smallest footprint.</span>
+        </div>
+        <div style="display:flex;justify-content:center;align-items:center;flex:1;padding:20px 0;background:linear-gradient(180deg,#f6f7f9,#fff);border-radius:14px;">
+          <div style="position:relative;width:184px;height:190px;">
+            <svg width="184" height="184" viewBox="0 0 200 200" style="position:absolute;top:2px;left:0;overflow:visible;">
+              <path d="M20,100 A80,80 0 0 1 180,100" fill="none" stroke="#e9ebee" stroke-width="14" stroke-linecap="round"/><path d="M180,100 A80,80 0 0 1 20,100" fill="none" stroke="#e9ebee" stroke-width="14" stroke-linecap="round"/>
+              <path d="M20,100 A80,80 0 0 1 180,100" fill="none" stroke="#f59e0b" stroke-width="14" stroke-linecap="round" stroke-dasharray="206 260"/>
+              <path d="M180,100 A80,80 0 0 1 20,100" fill="none" stroke="#f97316" stroke-width="14" stroke-linecap="round" stroke-dasharray="236 260"/>
+              <text x="100" y="12" text-anchor="middle" fill="#9aa0a6" font-family="'IBM Plex Mono',monospace" font-size="15" font-weight="600" style="letter-spacing:.08em;">5H</text>
+              <text x="100" y="196" text-anchor="middle" fill="#9aa0a6" font-family="'IBM Plex Mono',monospace" font-size="15" font-weight="600" style="letter-spacing:.08em;">WK</text>
+            </svg>
+            <div style="position:absolute;top:36px;left:34px;width:116px;height:116px;display:flex;align-items:center;justify-content:center;"><x-import component-from-global-scope="image-slot" from="./image-slot.js" id="ring-pet-single" fit="contain" shape="circle" placeholder="your pet" hint-size="100%,100%" style="width:100%;height:100%;display:block;"></x-import></div>
+          </div>
+        </div>
+        <span class="mono" style="font-size:11px;color:#a1a7ad;">+ default · one provider · identical to the v1 overlay footprint</span>
+      </div>
+
+      <!-- 7b double -->
+      <div id="7b" style="position:relative;flex:1;min-width:300px;background:#fff;border:1px solid #e6e8eb;border-radius:18px;box-shadow:0 1px 2px rgba(20,25,30,.04),0 12px 30px rgba(20,25,30,.05);padding:26px;display:flex;flex-direction:column;gap:16px;">
+        <span class="mono" style="position:absolute;top:16px;right:16px;background:#16191d;color:#fff;font-size:11px;font-weight:600;padding:3px 9px;border-radius:7px;">7b</span>
+        <div style="display:flex;flex-direction:column;gap:2px;">
+          <span style="font-size:16px;font-weight:700;">Double ring</span>
+          <span style="font-size:13px;color:#7b818a;">Both providers. Big ring = primary (auto), satellite chip = second (auto), each with its own 5h / weekly arcs.</span>
+        </div>
+        <div style="display:flex;justify-content:center;align-items:center;flex:1;padding:20px 0;background:linear-gradient(180deg,#f6f7f9,#fff);border-radius:14px;">
+          <div style="position:relative;width:184px;height:190px;">
+            <svg width="184" height="184" viewBox="0 0 200 200" style="position:absolute;top:2px;left:0;overflow:visible;">
+              <path d="M20,100 A80,80 0 0 1 180,100" fill="none" stroke="#e9ebee" stroke-width="14" stroke-linecap="round"/><path d="M180,100 A80,80 0 0 1 20,100" fill="none" stroke="#e9ebee" stroke-width="14" stroke-linecap="round"/>
+              <path d="M20,100 A80,80 0 0 1 180,100" fill="none" stroke="#f59e0b" stroke-width="14" stroke-linecap="round" stroke-dasharray="206 260"/>
+              <path d="M180,100 A80,80 0 0 1 20,100" fill="none" stroke="#f97316" stroke-width="14" stroke-linecap="round" stroke-dasharray="236 260"/>
+              <text x="100" y="12" text-anchor="middle" fill="#9aa0a6" font-family="'IBM Plex Mono',monospace" font-size="15" font-weight="600" style="letter-spacing:.08em;">5H</text>
+              <text x="100" y="196" text-anchor="middle" fill="#9aa0a6" font-family="'IBM Plex Mono',monospace" font-size="15" font-weight="600" style="letter-spacing:.08em;">WK</text>
+            </svg>
+            <div style="position:absolute;top:36px;left:34px;width:116px;height:116px;display:flex;align-items:center;justify-content:center;"><x-import component-from-global-scope="image-slot" from="./image-slot.js" id="ring-pet-double" fit="contain" shape="circle" placeholder="your pet" hint-size="100%,100%" style="width:100%;height:100%;display:block;"></x-import></div>
+            <!-- second provider satellite -->
+            <div style="position:absolute;right:-8px;top:120px;width:74px;height:74px;">
+              <svg width="74" height="74" viewBox="0 0 200 200" style="position:absolute;inset:0;filter:drop-shadow(0 3px 8px rgba(20,25,30,.22));">
+                <circle cx="100" cy="100" r="92" fill="#fff"/>
+                <path d="M24,100 A76,76 0 0 1 176,100" fill="none" stroke="#e9ebee" stroke-width="18" stroke-linecap="round"/><path d="M176,100 A76,76 0 0 1 24,100" fill="none" stroke="#e9ebee" stroke-width="18" stroke-linecap="round"/>
+                <path d="M24,100 A76,76 0 0 1 176,100" fill="none" stroke="#22c55e" stroke-width="18" stroke-linecap="round" stroke-dasharray="98 246"/>
+                <path d="M176,100 A76,76 0 0 1 24,100" fill="none" stroke="#22c55e" stroke-width="18" stroke-linecap="round" stroke-dasharray="139 246"/>
+              </svg>
+              <div style="position:absolute;inset:17px;border-radius:50%;overflow:hidden;background:#f4f5f7;"><x-import component-from-global-scope="image-slot" from="./image-slot.js" id="second-provider-logo" fit="contain" shape="circle" placeholder="2nd logo" hint-size="100%,100%" style="width:100%;height:100%;display:block;"></x-import></div>
+            </div>
+          </div>
+        </div>
+        <span class="mono" style="font-size:11px;color:#a1a7ad;">+ both at a glance · big = primary, chip = second · falls back to 7a if only one is connected</span>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============ UI CONTRACT ============ -->
+  <section style="display:flex;flex-direction:column;gap:20px;">
+    <div style="display:flex;flex-direction:column;gap:3px;">
+      <span class="mono" style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#9aa0a6;">§4.1 · ui contract · overlay ring</span>
+      <h2 style="margin:0;font-size:22px;font-weight:700;letter-spacing:-.01em;">UI contract — the two rings</h2>
+      <p style="margin:4px 0 0;font-size:14.5px;color:#5b6169;max-width:860px;">This contract covers <b>only the new double-ring overlay</b> — ring positions, sizes, and the second-provider logo chip. The click panel (and its changes) and everything else follow the existing <b>v1 contract unchanged</b>.</p>
+    </div>
+
+    <div style="background:#0f1216;color:#e7eaee;border-radius:16px;padding:28px 30px;display:flex;flex-direction:column;gap:24px;font-family:'IBM Plex Mono',monospace;">
+
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <span style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#7f8a97;">C1 · mode</span>
+        <div style="font-size:13.5px;line-height:1.7;color:#c7cad2;">
+          <div><span style="color:#7dd3fc;">ring.mode</span> : <span style="color:#fcd34d;">'single' | 'double'</span> — user setting. Default <span style="color:#fcd34d;">'single'</span>.</div>
+          <div><span style="color:#7dd3fc;">single</span> → render <b>one</b> split ring for the <span style="color:#7dd3fc;">primary</span> provider only. The second provider is not shown on the overlay (still browsable in the panel).</div>
+          <div><span style="color:#7dd3fc;">double</span> → render the primary split ring <b>plus</b> a satellite chip for the second provider.</div>
+        </div>
+      </div>
+
+      <div style="height:1px;background:#242a31;"></div>
+
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <span style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#7f8a97;">C2 · provider binding (automatic)</span>
+        <div style="font-size:13.5px;line-height:1.7;color:#c7cad2;">
+          <div>Big ring ← <span style="color:#7dd3fc;">providers.primary</span> (the ★ set in settings). Satellite chip ← <span style="color:#7dd3fc;">providers.secondary</span> (the other connected one).</div>
+          <div>The user never maps a provider to a ring position by hand — binding is derived from the existing primary setting.</div>
+          <div>If <span style="color:#7dd3fc;">connectedCount === 1</span>: force <span style="color:#fcd34d;">effectiveMode = 'single'</span> regardless of the setting; the lone provider takes the big ring.</div>
+          <div>If <span style="color:#7dd3fc;">connectedCount === 0</span>: overlay shows the pet with an <span style="color:#fcd34d;">unknown</span> (grey) track, no arcs.</div>
+        </div>
+      </div>
+
+      <div style="height:1px;background:#242a31;"></div>
+
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <span style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#7f8a97;">C3 · geometry &amp; arcs (inherited from SplitUsageRing)</span>
+        <div style="font-size:13.5px;line-height:1.7;color:#c7cad2;">
+          <div>Big ring: two half-arcs on a 100×100 viewBox, <span style="color:#7dd3fc;">stroke-width 6.5</span>, round caps. Top arc <span style="color:#7dd3fc;">M 8 50 A 42 42 0 0 1 92 50</span> = session (5-hour); bottom arc reversed = weekly. <span style="color:#7dd3fc;">stroke-dasharray = `${percent} 100`</span>, <span style="color:#7dd3fc;">pathLength 100</span>.</div>
+          <div>Labels: <span style="color:#fcd34d;">5H</span> at (50, 4), <span style="color:#fcd34d;">WK</span> at (50, 104), mono / muted / letter-spacing 0.08em.</div>
+          <div>Satellite chip: same split-ring, ~40% scale, pinned lower-right, overlapping the big ring by ~⅓, on a white puck with drop-shadow. Center holds the second provider's logo (asset slot).</div>
+        </div>
+      </div>
+
+      <div style="height:1px;background:#242a31;"></div>
+
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <span style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#7f8a97;">C4 · pet (cosmetic)</span>
+        <div style="font-size:13.5px;line-height:1.7;color:#c7cad2;">
+          <div>Pet is user-selected and carries <b>no</b> provider meaning. It always sits in the big ring center.</div>
+          <div>Mood/fatness still follows the <b>big ring's</b> provider: <span style="color:#7dd3fc;">pet_mood = worst(session.sev, weekly.sev)</span> of the primary. The satellite provider does not drive the pet.</div>
+        </div>
+      </div>
+
+      <div style="height:1px;background:#242a31;"></div>
+
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <span style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#7f8a97;">C5 · per-ring states (independent)</span>
+        <div style="font-size:13.5px;line-height:1.7;color:#c7cad2;">
+          <div><span style="color:#7dd3fc;">stale</span> → that ring dims to <span style="color:#7dd3fc;">--overlay-stale-dim</span>; the other ring is unaffected.</div>
+          <div><span style="color:#7dd3fc;">system != active</span> (auth_required / unavailable / error / offline / loading) → that ring's arcs are replaced by the v1 system badge; the pet still renders. In double mode one provider erroring never blanks the other (provider-independence, §5).</div>
+          <div><span style="color:#7dd3fc;">unknown</span> severity → grey track, no arc fill, no percentage.</div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============ COMBINED PANEL (UNCHANGED) ============ -->
+  <section style="display:flex;flex-direction:column;gap:22px;">
+    <div style="display:flex;flex-direction:column;gap:3px;">
+      <span class="mono" style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#9aa0a6;">§5 · click panel · unchanged</span>
+      <h2 style="margin:0;font-size:22px;font-weight:700;letter-spacing:-.01em;">Panel — both providers, side by side</h2>
+      <p style="margin:4px 0 0;font-size:14.5px;color:#5b6169;max-width:760px;">Shown for reference — this is not changing in this pass. Claude and Codex render as two columns; ★ marks the primary that drives the big ring.</p>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <span class="mono" style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#a1a7ad;">macOS · vibrancy popover</span>
+      <div style="width:380px;border-radius:14px;background:rgba(250,250,252,.95);border:1px solid rgba(0,0,0,.08);box-shadow:0 0 0 .5px rgba(0,0,0,.04),0 18px 44px rgba(20,25,30,.22);overflow:hidden;">
+        <div style="position:relative;padding:14px 16px 10px;border-bottom:1px solid #eceef1;">
+          <span style="font-size:13px;font-weight:700;">Usage</span>
+          <span style="position:absolute;top:12px;right:12px;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#9aa0a6;font-size:14px;cursor:pointer;" style-hover="background:#eceef1;">✕</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;">
+          <div style="padding:16px;display:flex;flex-direction:column;gap:14px;border-right:1px solid #eceef1;">
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <span style="font-size:14px;font-weight:700;display:flex;align-items:center;gap:5px;">Claude<span style="color:#f59e0b;">★</span></span>
+              <span style="font-size:10px;font-weight:600;color:#5b6169;background:#eceef1;border-radius:5px;padding:2px 6px;">Pro</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:5px;">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;"><span style="font-size:12px;font-weight:600;color:#3b4046;">5-hour</span><span class="mono" style="font-size:13px;font-weight:600;color:#f59e0b;">82%</span></div>
+              <div style="height:8px;border-radius:999px;background:#e6e8eb;overflow:hidden;"><div style="width:82%;height:100%;background:#f59e0b;"></div></div>
+              <span class="mono" style="font-size:10.5px;color:#8a9099;">resets 1h 12m</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:5px;">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;"><span style="font-size:12px;font-weight:600;color:#3b4046;">weekly</span><span class="mono" style="font-size:13px;font-weight:600;color:#f97316;">94%</span></div>
+              <div style="height:8px;border-radius:999px;background:#e6e8eb;overflow:hidden;"><div style="width:94%;height:100%;background:#f97316;"></div></div>
+              <span class="mono" style="font-size:10.5px;color:#8a9099;">resets Mon 09:00</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;border-top:1px solid #eef0f2;padding-top:9px;"><span style="width:6px;height:6px;border-radius:50%;background:#22c55e;"></span><span class="mono" style="font-size:10px;color:#8a9099;">Fresh · 2m</span></div>
+          </div>
+          <div style="padding:16px;display:flex;flex-direction:column;gap:14px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <span style="font-size:14px;font-weight:700;">Codex</span>
+              <span style="font-size:10px;font-weight:600;color:#5b6169;background:#eceef1;border-radius:5px;padding:2px 6px;">Plus</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:5px;">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;"><span style="font-size:12px;font-weight:600;color:#3b4046;">5-hour</span><span class="mono" style="font-size:13px;font-weight:600;color:#22c55e;">41%</span></div>
+              <div style="height:8px;border-radius:999px;background:#e6e8eb;overflow:hidden;"><div style="width:41%;height:100%;background:#22c55e;"></div></div>
+              <span class="mono" style="font-size:10.5px;color:#8a9099;">resets 3h 40m</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:5px;">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;"><span style="font-size:12px;font-weight:600;color:#3b4046;">weekly</span><span class="mono" style="font-size:13px;font-weight:600;color:#22c55e;">58%</span></div>
+              <div style="height:8px;border-radius:999px;background:#e6e8eb;overflow:hidden;"><div style="width:58%;height:100%;background:#22c55e;"></div></div>
+              <span class="mono" style="font-size:10.5px;color:#8a9099;">resets Mon 09:00</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;border-top:1px solid #eef0f2;padding-top:9px;"><span style="width:6px;height:6px;border-radius:50%;background:#22c55e;"></span><span class="mono" style="font-size:10px;color:#8a9099;">Fresh · 5m</span></div>
+          </div>
+        </div>
+        <div style="padding:12px 16px 14px;background:rgba(0,0,0,.02);border-top:1px solid #eceef1;display:flex;flex-direction:column;gap:8px;">
+          <div style="display:flex;gap:8px;">
+            <button style="flex:1;border:none;border-radius:8px;background:#16191d;color:#fff;font-family:inherit;font-size:12.5px;font-weight:600;padding:8px 0;cursor:pointer;" style-hover="background:#2a2f36;">Refresh both</button>
+            <button style="flex:1;border:1px solid #d7dade;border-radius:8px;background:#fff;color:#3b4046;font-family:inherit;font-size:12.5px;font-weight:600;padding:8px 0;cursor:pointer;" style-hover="background:#f4f5f7;">Set Codex as ★</button>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button style="flex:1;border:none;background:transparent;color:#7b818a;font-family:inherit;font-size:12px;font-weight:500;padding:5px 0;cursor:pointer;" style-hover="color:#16191d;">Settings</button>
+            <button style="flex:1;border:none;background:transparent;color:#7b818a;font-family:inherit;font-size:12px;font-weight:500;padding:5px 0;cursor:pointer;" style-hover="color:#dc2626;">Quit</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer style="border-top:1px solid #dfe2e6;padding-top:20px;display:flex;flex-direction:column;gap:5px;">
+    <span class="mono" style="font-size:11.5px;color:#a1a7ad;">v2 draft · this contract covers ONLY the new double-ring overlay geometry (ring positions, sizes, second-provider logo chip). Everything else follows the existing v1 contract unchanged.</span>
+    <span class="mono" style="font-size:11.5px;color:#a1a7ad;">Follows v1 as-is (out of scope here): the click panel and any of its changes, settings, severity thresholds (warn 70 / critical 90), pet asset keys (§6), provider-independence (§5), refresh / stale / data-source rules.</span>
+  </footer>
+
+</div>
+</x-dc>
+</body>
+</html>

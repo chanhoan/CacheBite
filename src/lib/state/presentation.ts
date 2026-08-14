@@ -10,6 +10,7 @@ export type SettingsStoreState = Pick<
   | 'startAtLogin'
   | 'notificationsEnabled'
   | 'secondaryNotificationsEnabled'
+  | 'ringMode'
 >;
 
 /**
@@ -32,6 +33,7 @@ export function toSettingsStoreState(
     startAtLogin: settings.startAtLogin,
     notificationsEnabled: settings.notificationsEnabled,
     secondaryNotificationsEnabled: settings.secondaryNotificationsEnabled,
+    ringMode: settings.ringMode,
   };
 }
 

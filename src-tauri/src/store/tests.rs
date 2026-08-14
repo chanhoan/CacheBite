@@ -136,11 +136,11 @@ fn legacy_settings_are_migrated_and_rewritten() {
 
     let loaded = SettingsRepository::new(dir.path()).load().expect("migrate");
 
-    assert_eq!(loaded.schema_version, 5);
+    assert_eq!(loaded.schema_version, 6);
     assert_eq!(loaded.selected_pet_id, "old-pet");
     assert!(!loaded.bubble_enabled);
     let rewritten = fs::read_to_string(dir.path().join("settings.json")).expect("rewritten");
-    assert!(rewritten.contains("\"schema_version\": 5"));
+    assert!(rewritten.contains("\"schema_version\": 6"));
 }
 
 #[test]
@@ -154,7 +154,7 @@ fn version_one_settings_migrate_with_notifications_off() {
     let loaded = SettingsRepository::new(dir.path())
         .load()
         .expect("migrate v1");
-    assert_eq!(loaded.schema_version, 5);
+    assert_eq!(loaded.schema_version, 6);
     assert!(!loaded.notification_enabled);
 }
 
@@ -169,9 +169,48 @@ fn version_two_settings_migrate_with_secondary_notifications_off() {
     let loaded = SettingsRepository::new(dir.path())
         .load()
         .expect("migrate v2");
-    assert_eq!(loaded.schema_version, 5);
+    assert_eq!(loaded.schema_version, 6);
     assert!(loaded.notification_enabled);
     assert!(!loaded.secondary_notification_enabled);
+}
+
+/// v5 is the shape every machine on the previous release carries. The added
+/// `ring_mode` must default to `Single` without costing the user anything else
+/// in the file — and without the `deny_unknown_fields` arms quarantining it.
+#[test]
+fn version_five_settings_migrate_with_ring_mode_single() {
+    let dir = TempDir::new().expect("temp dir");
+    fs::write(
+        dir.path().join("settings.json"),
+        r#"{"schema_version":5,"primary_provider":"codex","selected_pet_id":"corgi","bubble_enabled":true,"start_at_login":true,"notification_enabled":true,"secondary_notification_enabled":true,"logical_position":{"x":-232.5,"y":220.5}}"#,
+    )
+    .expect("write v5 settings");
+
+    let loaded = SettingsRepository::new(dir.path()).load().expect("load v5");
+
+    assert_eq!(loaded.schema_version, 6);
+    assert_eq!(loaded.ring_mode, RingMode::Single);
+    assert_eq!(loaded.primary_provider, Provider::Codex);
+    assert_eq!(loaded.selected_pet_id, "corgi");
+    assert!(loaded.start_at_login);
+    assert!(loaded.secondary_notification_enabled);
+    assert_eq!(loaded.logical_position.x, -232.5);
+    assert_eq!(loaded.logical_position.y, 220.5);
+}
+
+/// `ring_mode` must survive a save/load cycle, not just the migration default.
+#[test]
+fn ring_mode_round_trips_through_the_settings_file() {
+    let dir = TempDir::new().expect("temp dir");
+    let repository = SettingsRepository::new(dir.path());
+    let settings = Settings {
+        ring_mode: RingMode::Double,
+        ..Settings::default()
+    };
+
+    repository.save(&settings).expect("save settings");
+
+    assert_eq!(repository.load().expect("load").ring_mode, RingMode::Double);
 }
 
 #[test]
@@ -185,7 +224,7 @@ fn version_three_settings_migrate_to_the_current_schema() {
     let loaded = SettingsRepository::new(dir.path())
         .load()
         .expect("migrate v3");
-    assert_eq!(loaded.schema_version, 5);
+    assert_eq!(loaded.schema_version, 6);
 }
 
 /// The shape a machine on the previous build actually carries: the hotkey was
@@ -202,7 +241,7 @@ fn version_four_settings_drop_the_persisted_hotkey() {
 
     let loaded = SettingsRepository::new(dir.path()).load().expect("load v4");
 
-    assert_eq!(loaded.schema_version, 5);
+    assert_eq!(loaded.schema_version, 6);
     assert_eq!(loaded.primary_provider, Provider::Codex);
     assert_eq!(loaded.selected_pet_id, "corgi");
     assert!(loaded.start_at_login);
@@ -224,7 +263,7 @@ fn version_four_settings_with_a_custom_hotkey_migrate_without_quarantine() {
 
     let loaded = SettingsRepository::new(dir.path()).load().expect("load v4");
 
-    assert_eq!(loaded.schema_version, 5);
+    assert_eq!(loaded.schema_version, 6);
     assert!(!loaded.bubble_enabled);
     assert_eq!(loaded.logical_position.x, 12.0);
     // A quarantine would leave the corrupt copy beside the rewritten file.
@@ -632,7 +671,7 @@ fn version_two_settings_carrying_the_retired_cat_pet_migrate_to_tabby() {
 
     // The V2 upgrade rewrites the file, then re-reads it so the current-schema
     // pass can repair the pet id the old file carried over.
-    assert_eq!(loaded.schema_version, 5);
+    assert_eq!(loaded.schema_version, 6);
     assert_eq!(loaded.selected_pet_id, "tabby");
     assert!(loaded.notification_enabled);
     assert_eq!(loaded.logical_position, LogicalPosition { x: 4.0, y: 8.0 });

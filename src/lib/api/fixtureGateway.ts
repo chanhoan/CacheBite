@@ -33,20 +33,50 @@ const provider = (name: 'claude' | 'codex'): ProviderBackendStateWire => ({
   reset_pending: false,
 });
 
+/**
+ * An unconnected provider: no snapshot, only `not_installed`. The renderer
+ * derives `unavailable` from that, which is what makes the panel drop its
+ * column — the single-column layout has no other way to be reached.
+ */
+const disconnected = (name: 'claude' | 'codex'): ProviderBackendStateWire => ({
+  provider: name,
+  revision: 1,
+  snapshot: null,
+  failure_class: null,
+  unavailable_reason: 'not_installed',
+  expired: false,
+  reset_pending: false,
+});
+
 export const rendererFixtureGateway: AppGateway = {
   getCollectorMode: async () => ({ claude: 'fixture', codex: 'fixture' }),
   getProviderStates: async () => ({
     claude: provider('claude'),
-    codex: provider('codex'),
+    // Opened only by `?panel=single`. The default keeps both providers
+    // connected so every spec written against the two-column panel stays on it.
+    codex:
+      new URLSearchParams(window.location.search).get('panel') === 'single'
+        ? disconnected('codex')
+        : provider('codex'),
   }),
   getSettings: async () => ({
-    schemaVersion: 5,
+    schemaVersion: 6,
     primaryProvider: 'claude',
     selectedPetId: 'fixture-pet',
     bubblesEnabled: true,
     startAtLogin: false,
     notificationsEnabled: false,
     secondaryNotificationsEnabled: false,
+    // Opt-in via `?ring=double`, the same query-parameter channel the toast
+    // layout spec uses below. Defaulting to `single` keeps every existing spec
+    // on the layout it was written against; the double-ring specs are the only
+    // place a real engine ever evaluates `offset-path`, the satellite's
+    // placement, or the z-order that carries the perspective — none of which
+    // jsdom computes.
+    ringMode:
+      new URLSearchParams(window.location.search).get('ring') === 'double'
+        ? 'double'
+        : 'single',
     logicalPosition: { x: 0, y: 0 },
   }),
   listenProviderStates: async (next) => {

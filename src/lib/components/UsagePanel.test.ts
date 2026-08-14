@@ -2,129 +2,256 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import UsagePanel from './UsagePanel.svelte';
 
+import type { PanelProviderModel } from './panelModels';
 import type { SystemState } from '../state/engine';
 
 const NOW = Date.parse('2026-07-16T12:02:00Z');
+const IDLE = { claude: false, codex: false } as const;
 
-const provider = (system: SystemState, stale = false) => ({
-  provider: 'claude' as const,
+const provider = (
+  system: SystemState,
+  overrides: Partial<PanelProviderModel> = {},
+): PanelProviderModel => ({
+  provider: 'claude',
   system,
-  stale,
+  stale: false,
   planType: 'pro',
-  session: { usedPercent: 74, severity: 'warn' as const, resetsAt: null },
-  weekly: { usedPercent: 20, severity: 'ok' as const, resetsAt: null },
+  session: { usedPercent: 74, severity: 'warn', resetsAt: null },
+  weekly: { usedPercent: 20, severity: 'ok', resetsAt: null },
   capturedAt: '2026-07-16T12:00:00Z',
-  source: 'oauth_api' as const,
+  source: 'oauth_api',
   isCached: false,
+  ...overrides,
 });
 
-const bothProviders = (system: SystemState) => ({
-  claude: provider(system),
-  codex: { ...provider(system), provider: 'codex' as const, source: 'cli_rpc' },
+const bothProviders = (claude: SystemState, codex: SystemState = claude) => ({
+  claude: provider(claude),
+  codex: provider(codex, { provider: 'codex', source: 'cli_rpc' }),
 });
+
+const columns = (container: HTMLElement) => [
+  ...container.querySelectorAll('[data-provider]'),
+];
 
 describe('UsagePanel', () => {
   afterEach(cleanup);
-  it('always shows both provider tabs and loading skeleton only for loading', async () => {
-    const { rerender } = render(UsagePanel, {
-      props: {
-        providers: {
-          claude: provider('loading'),
-          codex: {
-            ...provider('active'),
-            provider: 'codex',
-            source: 'cli_rpc',
-          },
-        },
-        selected: 'claude',
-        primary: 'claude',
-        refreshing: false,
-      },
-    });
-    expect(screen.getByRole('tab', { name: 'Claude (primary)' })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: 'Codex' })).toBeTruthy();
-    expect(screen.getByTestId('usage-skeleton')).toBeTruthy();
-    await rerender({
-      providers: {
-        claude: provider('offline'),
-        codex: { ...provider('active'), provider: 'codex', source: 'cli_rpc' },
-      },
-      selected: 'claude',
-      primary: 'claude',
-      refreshing: false,
-    });
-    expect(screen.queryByTestId('usage-skeleton')).toBeNull();
-  });
 
-  it('disables refresh only while debounced and sets the selected tab primary without fetching', async () => {
-    const onRefresh = vi.fn();
-    const onSelect = vi.fn();
-    const onPrimary = vi.fn();
+  it('renders one column per connected provider', () => {
     const { container } = render(UsagePanel, {
       props: {
-        providers: {
-          claude: provider('active'),
-          codex: {
-            ...provider('active'),
-            provider: 'codex',
-            source: 'cli_rpc',
-          },
-        },
-        selected: 'claude',
-        primary: 'codex',
-        refreshing: true,
+        providers: bothProviders('active'),
+        primary: 'claude',
+        refreshing: IDLE,
+        nowMs: NOW,
+      },
+    });
+
+    expect(columns(container)).toHaveLength(2);
+    expect(screen.getByLabelText('Claude usage (primary)')).toBeTruthy();
+    expect(screen.getByLabelText('Codex usage')).toBeTruthy();
+  });
+
+  it('hides a provider whose CLI is not installed', () => {
+    const { container } = render(UsagePanel, {
+      props: {
+        providers: bothProviders('active', 'unavailable'),
+        primary: 'claude',
+        refreshing: IDLE,
+        nowMs: NOW,
+      },
+    });
+
+    expect(columns(container)).toHaveLength(1);
+    expect(columns(container)[0]?.getAttribute('data-provider')).toBe('claude');
+    expect(screen.queryByLabelText('Codex usage')).toBeNull();
+  });
+
+  it('hides a provider that is not signed in', () => {
+    const { container } = render(UsagePanel, {
+      props: {
+        providers: bothProviders('auth_required', 'active'),
+        primary: 'claude',
+        refreshing: IDLE,
+        nowMs: NOW,
+      },
+    });
+
+    expect(columns(container)).toHaveLength(1);
+    expect(columns(container)[0]?.getAttribute('data-provider')).toBe('codex');
+  });
+
+  // Hiding only makes sense against a connected sibling. With neither connected
+  // both stay, so the two sign-in instructions still have somewhere to appear.
+  it('keeps both columns when neither provider is connected', () => {
+    const { container } = render(UsagePanel, {
+      props: {
+        providers: bothProviders('auth_required', 'unavailable'),
+        primary: 'claude',
+        refreshing: IDLE,
+        nowMs: NOW,
+      },
+    });
+
+    expect(columns(container)).toHaveLength(2);
+    expect(
+      screen.getAllByRole('status').map((element) => element.textContent),
+    ).toEqual([
+      'Sign in to the Claude CLI: claude login',
+      'The Codex CLI is not installed',
+    ]);
+  });
+
+  it('keeps a column whose fetch failed', () => {
+    const { container } = render(UsagePanel, {
+      props: {
+        providers: bothProviders('active', 'error'),
+        primary: 'claude',
+        refreshing: IDLE,
+        nowMs: NOW,
+      },
+    });
+
+    expect(columns(container)).toHaveLength(2);
+  });
+
+  it('shows the loading skeleton only for a loading provider', () => {
+    render(UsagePanel, {
+      props: {
+        providers: bothProviders('loading', 'active'),
+        primary: 'claude',
+        refreshing: IDLE,
+        nowMs: NOW,
+      },
+    });
+
+    expect(screen.getAllByTestId('usage-skeleton')).toHaveLength(1);
+  });
+
+  it('replaces the tab strip with a visible panel heading', () => {
+    render(UsagePanel, {
+      props: {
+        providers: bothProviders('active'),
+        primary: 'claude',
+        refreshing: IDLE,
+        nowMs: NOW,
+      },
+    });
+
+    expect(screen.queryAllByRole('tab')).toHaveLength(0);
+    expect(screen.getByRole('heading', { name: 'Usage' })).toBeTruthy();
+  });
+
+  it('refreshes every visible provider from one control', async () => {
+    const onRefresh = vi.fn();
+    render(UsagePanel, {
+      props: {
+        providers: bothProviders('active'),
+        primary: 'claude',
+        refreshing: IDLE,
         nowMs: NOW,
         onRefresh,
-        onSelect,
+      },
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Refresh now' }));
+    expect(onRefresh.mock.calls.map(([called]) => called)).toEqual([
+      'claude',
+      'codex',
+    ]);
+  });
+
+  it('refreshes only the surviving provider when one is hidden', async () => {
+    const onRefresh = vi.fn();
+    render(UsagePanel, {
+      props: {
+        providers: bothProviders('active', 'unavailable'),
+        primary: 'claude',
+        refreshing: IDLE,
+        nowMs: NOW,
+        onRefresh,
+      },
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Refresh now' }));
+    expect(onRefresh.mock.calls.map(([called]) => called)).toEqual(['claude']);
+  });
+
+  it('disables refresh while any visible provider is debounced', () => {
+    render(UsagePanel, {
+      props: {
+        providers: bothProviders('active'),
+        primary: 'claude',
+        refreshing: { claude: false, codex: true },
+        nowMs: NOW,
+      },
+    });
+
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Refresh now',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+  });
+
+  it('aims the primary control at the visible provider that is not primary', async () => {
+    const onPrimary = vi.fn();
+    render(UsagePanel, {
+      props: {
+        providers: bothProviders('active'),
+        primary: 'claude',
+        refreshing: IDLE,
+        nowMs: NOW,
         onPrimary,
       },
     });
-    expect(
-      (screen.getByRole('button', { name: 'Refresh now' }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
+
     await fireEvent.click(
-      screen.getByRole('button', { name: 'Set as primary' }),
+      screen.getByRole('button', { name: 'Set Codex as primary' }),
     );
-    expect(onPrimary).toHaveBeenCalledWith('claude');
-    expect(onRefresh).not.toHaveBeenCalled();
-    const freshness = container.querySelector<HTMLElement>('.freshness');
-    expect(freshness?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
-      '● Fresh · captured 2 min ago',
-    );
-    expect(freshness?.textContent).not.toMatch(/oauth_api|cli_rpc|cached/);
-    expect(
-      container.querySelector('.freshness time')?.getAttribute('datetime'),
-    ).toBe('2026-07-16T12:00:00Z');
+    expect(onPrimary).toHaveBeenCalledWith('codex');
   });
 
-  it('omits source and cache details from stale freshness copy', () => {
-    const staleCached = {
-      ...provider('active', true),
-      isCached: true,
-    };
-    const { container } = render(UsagePanel, {
+  it('disables the primary control when the only column is already primary', async () => {
+    const onPrimary = vi.fn();
+    render(UsagePanel, {
       props: {
-        providers: {
-          claude: staleCached,
-          codex: {
-            ...staleCached,
-            provider: 'codex',
-            source: 'cli_rpc',
-          },
-        },
-        selected: 'claude',
+        providers: bothProviders('active', 'unavailable'),
         primary: 'claude',
-        refreshing: false,
+        refreshing: IDLE,
+        nowMs: NOW,
+        onPrimary,
+      },
+    });
+
+    const button = screen.getByRole('button', {
+      name: 'Set as primary',
+    }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    await fireEvent.click(button);
+    expect(onPrimary).not.toHaveBeenCalled();
+  });
+
+  // The primary is never auto-demoted, so it can point at a hidden provider.
+  // The lone visible column is then exactly what the control should offer.
+  it('offers the lone visible column when the primary is hidden', () => {
+    render(UsagePanel, {
+      props: {
+        providers: bothProviders('active', 'unavailable'),
+        primary: 'codex',
+        refreshing: IDLE,
         nowMs: NOW,
       },
     });
 
-    const freshness = container.querySelector('.freshness');
-    expect(freshness?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
-      '● Stale · captured 2 min ago',
-    );
-    expect(freshness?.textContent).not.toMatch(/oauth_api|cli_rpc|cached/);
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Set Claude as primary',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
   });
 
   it('hides the panel through the close control and quits through the footer button', async () => {
@@ -133,9 +260,8 @@ describe('UsagePanel', () => {
     render(UsagePanel, {
       props: {
         providers: bothProviders('active'),
-        selected: 'claude',
         primary: 'claude',
-        refreshing: false,
+        refreshing: IDLE,
         nowMs: NOW,
         onClose,
         onQuit,
@@ -158,9 +284,8 @@ describe('UsagePanel', () => {
     render(UsagePanel, {
       props: {
         providers: bothProviders('active'),
-        selected: 'claude',
         primary: 'claude',
-        refreshing: false,
+        refreshing: IDLE,
         nowMs: NOW,
         onSettings,
       },
@@ -174,49 +299,31 @@ describe('UsagePanel', () => {
   });
 
   it('announces an available settings update with a decorative dot', () => {
-    render(UsagePanel, {
-      props: {
-        providers: bothProviders('active'),
-        selected: 'claude',
-        primary: 'claude',
-        refreshing: false,
-        nowMs: NOW,
-        updateAvailable: true,
-      },
-    });
-
-    expect(screen.getByTestId('settings-update-dot')).toBeTruthy();
-    expect(
-      screen.getByRole('button', { name: 'Settings, update available' }),
-    ).toBeTruthy();
-  });
-
-  it('keeps the update dot inside the visible settings label wrapper', () => {
     const { container } = render(UsagePanel, {
       props: {
         providers: bothProviders('active'),
-        selected: 'claude',
         primary: 'claude',
-        refreshing: false,
+        refreshing: IDLE,
         nowMs: NOW,
         updateAvailable: true,
       },
     });
 
     const dot = screen.getByTestId('settings-update-dot');
-    const label = container.querySelector('.settings-label');
-
-    expect(label).toBeTruthy();
-    expect(label?.contains(dot)).toBe(true);
+    expect(container.querySelector('.settings-label')?.contains(dot)).toBe(
+      true,
+    );
+    expect(
+      screen.getByRole('button', { name: 'Settings, update available' }),
+    ).toBeTruthy();
   });
 
   it('keeps the default settings control queryable without an update dot', () => {
     render(UsagePanel, {
       props: {
         providers: bothProviders('active'),
-        selected: 'claude',
         primary: 'claude',
-        refreshing: false,
+        refreshing: IDLE,
         nowMs: NOW,
       },
     });
@@ -234,27 +341,27 @@ describe('UsagePanel', () => {
     render(UsagePanel, {
       props: {
         providers: bothProviders(system),
-        selected: 'claude',
         primary: 'claude',
-        refreshing: false,
+        refreshing: IDLE,
         nowMs: NOW,
       },
     });
 
-    expect(screen.getByRole('status').textContent).toBe(expected);
+    expect(screen.getAllByRole('status')[0]?.textContent).toBe(expected);
   });
 
-  it('keeps the guidance live region empty while usage is displayable', () => {
+  it('keeps the guidance live regions empty while usage is displayable', () => {
     render(UsagePanel, {
       props: {
         providers: bothProviders('active'),
-        selected: 'claude',
         primary: 'claude',
-        refreshing: false,
+        refreshing: IDLE,
         nowMs: NOW,
       },
     });
 
-    expect(screen.getByRole('status').textContent).toBe('');
+    expect(
+      screen.getAllByRole('status').map((element) => element.textContent),
+    ).toEqual(['', '']);
   });
 });

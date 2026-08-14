@@ -4,6 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import type {
   Provider,
   FailureClass,
+  RingMode,
   UnavailableReason,
 } from '../contracts/domain';
 import type { ProviderUiSnapshotWire } from './providerSnapshot';
@@ -21,6 +22,9 @@ export interface ProviderBackendStateWire {
   readonly expired: boolean;
   readonly reset_pending: boolean;
 }
+// Re-exported so the wire DTOs below read as one contract; `RingMode` itself is
+// a plain domain union and lives with the other domain types.
+export type { RingMode };
 export interface AppSettings {
   readonly schemaVersion: number;
   readonly primaryProvider: Provider;
@@ -29,6 +33,7 @@ export interface AppSettings {
   readonly startAtLogin: boolean;
   readonly notificationsEnabled: boolean;
   readonly secondaryNotificationsEnabled: boolean;
+  readonly ringMode: RingMode;
   readonly logicalPosition: { readonly x: number; readonly y: number };
 }
 export interface HistoryPointModel {
@@ -172,6 +177,7 @@ type SettingsWire = {
   start_at_login: boolean;
   notification_enabled: boolean;
   secondary_notification_enabled: boolean;
+  ring_mode: RingMode;
   logical_position: { x: number; y: number };
 };
 type HistoryWire = {
@@ -193,6 +199,7 @@ const fromSettings = (wire: SettingsWire): AppSettings => ({
   startAtLogin: wire.start_at_login,
   notificationsEnabled: wire.notification_enabled,
   secondaryNotificationsEnabled: wire.secondary_notification_enabled,
+  ringMode: wire.ring_mode,
   logicalPosition: wire.logical_position,
 });
 const toSettings = (settings: AppSettings): SettingsWire => ({
@@ -203,6 +210,7 @@ const toSettings = (settings: AppSettings): SettingsWire => ({
   start_at_login: settings.startAtLogin,
   notification_enabled: settings.notificationsEnabled,
   secondary_notification_enabled: settings.secondaryNotificationsEnabled,
+  ring_mode: settings.ringMode,
   logical_position: settings.logicalPosition,
 });
 const historySamples = (samples: HistorySampleWire[]): HistorySampleModel[] =>

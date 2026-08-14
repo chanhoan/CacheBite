@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store';
-import type { Provider } from '../contracts/domain';
+import type { Provider, RingMode } from '../contracts/domain';
 
 export interface SettingsState {
   readonly primaryProvider: Provider;
@@ -8,6 +8,7 @@ export interface SettingsState {
   readonly startAtLogin: boolean;
   readonly notificationsEnabled: boolean;
   readonly secondaryNotificationsEnabled: boolean;
+  readonly ringMode: RingMode;
 }
 export const defaultSettings: SettingsState = Object.freeze({
   primaryProvider: 'claude',
@@ -17,6 +18,8 @@ export const defaultSettings: SettingsState = Object.freeze({
   startAtLogin: false,
   notificationsEnabled: false,
   secondaryNotificationsEnabled: false,
+  // Must match the Rust default (`RingMode::Single`).
+  ringMode: 'single',
 });
 export function createSettingsStore(initial: SettingsState = defaultSettings) {
   const { subscribe, update, set } = writable(Object.freeze({ ...initial }));
