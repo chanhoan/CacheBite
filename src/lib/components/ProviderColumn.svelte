@@ -61,14 +61,17 @@
       stale={model.stale}
       {nowMs}
     />
-    <small class:stale={model.stale} class="freshness"
-      >● {model.stale
-        ? 'Stale'
-        : 'Fresh'}{#if model.capturedAt && captured}<span
-          >&nbsp;· captured <time datetime={model.capturedAt}>{captured}</time
-          ></span
-        >{/if}</small
-    >
+    <!-- Two lines, not one clipped line. At a column's width `● Fresh ·
+         captured just now` does not fit, and the old single nowrap line simply
+         cut it off mid-word. Stacking keeps the whole sentence readable and
+         costs one line of height that both columns pay equally. -->
+    <small class:stale={model.stale} class="freshness">
+      <span>● {model.stale ? 'Stale' : 'Fresh'}</span>
+      {#if model.capturedAt && captured}
+        <span>captured <time datetime={model.capturedAt}>{captured}</time></span
+        >
+      {/if}
+    </small>
   {/if}
   <!-- Stays mounted so a state change is announced rather than re-declared;
        only its content varies. Collapsed to zero height by having no line box
@@ -105,11 +108,11 @@
     text-transform: capitalize;
   }
   .freshness {
-    overflow: hidden;
+    display: grid;
+    gap: 0.1rem;
     color: var(--sev-ok);
     font-family: var(--font-mono);
     font-size: 0.6875rem;
-    white-space: nowrap;
   }
   .freshness.stale {
     color: var(--color-text-faint);

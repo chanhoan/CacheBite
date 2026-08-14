@@ -1119,7 +1119,7 @@ describe('application composition root', () => {
     render(App, {
       props: { gateway: harness.gateway, notificationAdapter: notifications },
     });
-    await screen.findByRole('button', { name: 'Refresh both' });
+    await screen.findByRole('button', { name: 'Refresh now' });
     await waitFor(() =>
       expect(harness.gateway.listenUpdateState).toHaveBeenCalled(),
     );

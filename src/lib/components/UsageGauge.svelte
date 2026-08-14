@@ -58,9 +58,16 @@
       style:width={`${percent}%`}
     ></div>
   </div>
-  {#if usage.resetsAt && resetLabel}<time datetime={usage.resetsAt}
-      >resets in {resetLabel}</time
-    >{/if}
+  <!-- The reset line always occupies its row, even with nothing to say. A
+       provider can drop a window entirely (Codex runs promotions with no
+       5-hour limit), and letting the row collapse there would shorten that
+       gauge — which knocks every row below it out of line with the other
+       column. The placeholder is a hard space so it still forms a line box. -->
+  {#if usage.resetsAt && resetLabel}
+    <time class="reset" datetime={usage.resetsAt}>resets in {resetLabel}</time>
+  {:else}
+    <span class="reset" aria-hidden="true">&nbsp;</span>
+  {/if}
 </section>
 
 <style>
@@ -123,7 +130,8 @@
   .gauge-fill[data-severity='unknown'] {
     background: var(--sev-unknown);
   }
-  time {
+  .reset {
+    display: block;
     color: var(--color-text-faint);
     font-family: var(--font-mono);
     font-size: 0.6875rem;

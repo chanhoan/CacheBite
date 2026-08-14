@@ -216,11 +216,11 @@ describe('CacheBite renderer fixture flows', () => {
     );
     const freshness = await $('.freshness');
     const freshnessText = await freshness.getText();
-    expect(freshnessText).toMatch(/^● Fresh · captured /);
+    expect(freshnessText).toMatch(/^● Fresh\s+captured /);
     expect(freshnessText).not.toMatch(/oauth_api|cli_rpc|cached/);
-    expect(
-      await freshness.getCSSProperty('white-space').then(({ value }) => value),
-    ).toBe('nowrap');
+    // Deliberately two lines: the sentence does not fit a column's width, and
+    // the single nowrap line this replaced clipped it mid-word. Measured rather
+    // than assumed — a regression back to one line would clip again.
     const visualLines = await browser.execute(() => {
       const element = document.querySelector<HTMLElement>('.freshness');
       if (!element) throw new Error('freshness line missing');
@@ -230,7 +230,19 @@ describe('CacheBite renderer fixture flows', () => {
         [...range.getClientRects()].map((rect) => Math.round(rect.top)),
       ).size;
     });
-    expect(visualLines).toBe(1);
+    expect(visualLines).toBe(2);
+    // Both columns' rows line up even when a provider reports no reset for a
+    // window — the reset row holds its place instead of collapsing.
+    const gaugeTops = await browser.execute(() =>
+      [...document.querySelectorAll<HTMLElement>('.column')].map((column) =>
+        [
+          ...column.querySelectorAll<HTMLElement>(
+            '[data-testid="usage-gauge"]',
+          ),
+        ].map((gauge) => Math.round(gauge.getBoundingClientRect().top)),
+      ),
+    );
+    expect(gaugeTops[0]).toEqual(gaugeTops[1]);
 
     const weeklyReset = await $('section[aria-label="Weekly usage"] time');
     expect(await weeklyReset.getText()).toMatch(/^resets in \d+d \d+h \d+m$/);

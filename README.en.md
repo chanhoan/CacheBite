@@ -75,7 +75,7 @@ Downloading by hand is normally a one-time step. From `v0.1.0-beta.4` onward Cac
 4. Right-click the pet for a menu with `Show usage panel` or `Hide usage panel`, `Hide pet`, and `Quit CacheBite`.
 5. The panel shows every connected provider side by side. Each column carries a session bar and a weekly bar. For the currently supported providers, the session bar is surfaced as a 5-hour window.
 6. If only one provider is connected, only that column is shown — there is nothing to switch between.
-7. Click `Refresh both` (`Refresh now` when a single column is showing) to fetch fresh usage, or the named button such as `Set Codex as primary` to choose the provider whose usage drives the pet ring and status.
+7. Click `Refresh now` to refresh every provider on screen, or the named button such as `Set Codex as primary` to choose the provider whose usage drives the pet ring and status.
 8. Open `Settings` to change appearance, primary provider, pet, bubbles, notifications, secondary provider notifications, and start at login.
 
 Use `Ctrl+Shift+H` on Windows and Linux, or `Cmd+Shift+H` on macOS, to hide or show the pet globally. Hiding the pet also closes the usage panel. The shortcut is fixed rather than user-configurable; if another application already owns it, CacheBite reports the conflict in Settings and keeps running.

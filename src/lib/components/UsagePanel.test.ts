@@ -153,7 +153,7 @@ describe('UsagePanel', () => {
       },
     });
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Refresh both' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Refresh now' }));
     expect(onRefresh.mock.calls.map(([called]) => called)).toEqual([
       'claude',
       'codex',
@@ -189,7 +189,7 @@ describe('UsagePanel', () => {
     expect(
       (
         screen.getByRole('button', {
-          name: 'Refresh both',
+          name: 'Refresh now',
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);

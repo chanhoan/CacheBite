@@ -19,15 +19,15 @@
   } = $props();
   const visible = $derived(visiblePanelProviders(providers));
   const candidate = $derived(primaryCandidate(visible, primary));
-  // One button that re-reads everything on screen. Disabled while any of them
-  // is still debounced — a request to the rest would only be dropped by the
-  // native debounce, so letting it fire buys nothing and hides the fact that
-  // the previous press is still in flight.
+  // One button that re-reads everything on screen — the label stays `Refresh
+  // now` whether that is one provider or both, because the control means the
+  // same thing either way and a label that changes with the column count makes
+  // the footer twitch as providers connect. Disabled while any of them is still
+  // debounced: a request to the rest would only be dropped by the native
+  // debounce, so letting it fire buys nothing and hides that the previous press
+  // is still in flight.
   const refreshBusy = $derived(
     visible.some((provider) => refreshing[provider]),
-  );
-  const refreshLabel = $derived(
-    visible.length > 1 ? 'Refresh both' : 'Refresh now',
   );
   const primaryLabel = $derived(
     candidate === null
@@ -61,7 +61,7 @@
         disabled={refreshBusy}
         onclick={() => {
           for (const provider of visible) onRefresh(provider);
-        }}>{refreshLabel}</button
+        }}>Refresh now</button
       >
       <button
         class="secondary-action"
@@ -162,12 +162,19 @@
     grid-template-columns: 1fr 1fr;
     gap: var(--space-2);
   }
+  /* The panel reads at 11–13px everywhere else (gauge headings, plan chip,
+     freshness), so buttons inheriting the 16px document default were the
+     outlier — and at 16px `Set Claude as primary` does not fit half of a 380px
+     footer and wraps to two lines. `font-size` after the `font` shorthand on
+     purpose: the shorthand resets size back to the inherited value. */
   button {
     min-height: 2.25rem;
     border-radius: 0.5rem;
     font: inherit;
+    font-size: 0.8125rem;
     font-weight: 600;
     cursor: pointer;
+    white-space: nowrap;
   }
   button:disabled {
     cursor: default;
@@ -199,6 +206,7 @@
     border: 1px solid transparent;
     background: transparent;
     color: var(--color-text-muted);
+    font-size: 0.75rem;
     font-weight: 500;
   }
   .settings-action {
