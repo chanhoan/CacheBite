@@ -111,6 +111,104 @@ describe('CacheBite renderer fixture flows', () => {
     expect(hits.corner).not.toBe('overlay-pointer-surface');
   });
 
+  // jsdom computes no motion paths and no stacking, so the unit tests can only
+  // prove the geometry module's arithmetic. These two specs are the only place
+  // a real engine is asked whether it draws that arithmetic.
+  it('rides both marks on their own circles and stacks them for depth', async () => {
+    await browser.url('/?window=overlay&fixture=e2e&ring=double');
+    await expect($('[data-testid="satellite-ring"]')).toBeDisplayed();
+    await expect($('[data-testid="satellite-orbit-walker"]')).toBeDisplayed();
+
+    const scene = await browser.execute(() => {
+      const measure = (selector: string) => {
+        const node = document.querySelector<HTMLElement>(selector);
+        if (!node) throw new Error(`${selector} missing`);
+        const rect = node.getBoundingClientRect();
+        return {
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          zIndex: getComputedStyle(node).zIndex,
+        };
+      };
+      return {
+        overlay: measure('section[aria-label="CacheBite pet status"]'),
+        bigMark: measure('[data-testid="orbit-walker"]'),
+        smallMark: measure('[data-testid="satellite-orbit-walker"]'),
+        satellite: measure('[data-testid="satellite-ring"]'),
+        ring: measure('section[aria-label="CacheBite pet status"] > .ring'),
+      };
+    });
+
+    const size = scene.overlay.width;
+    const from = (
+      a: { x: number; y: number },
+      b: { x: number; y: number },
+    ): number => Math.hypot(a.x - b.x, a.y - b.y) / size;
+
+    // Orbit radii from `orbitPath.ts`, as fractions of the overlay box:
+    // 45.25 + 7 for the primary, 18 + 4.5 for the satellite. Getting these
+    // means `offset-path` ran — without it both marks stay pinned at the
+    // overlay's top-left corner, which is the documented degradation.
+    expect(from(scene.bigMark, scene.overlay)).toBeCloseTo(0.5225, 2);
+    expect(from(scene.smallMark, scene.satellite)).toBeCloseTo(0.225, 2);
+
+    // The size clamp has to survive the marks' rotation: `offset-rotate: auto`
+    // turns each square, so its axis-aligned corner reaches further than half
+    // its side. `OVERLAY_BOUNDS_FACTOR / 2` is the half-extent that budgets for.
+    const reach = size * 0.9186;
+    for (const mark of [scene.bigMark, scene.smallMark]) {
+      expect(mark.left).toBeGreaterThanOrEqual(scene.overlay.x - reach - 1);
+      expect(mark.right).toBeLessThanOrEqual(scene.overlay.x + reach + 1);
+      expect(mark.top).toBeGreaterThanOrEqual(scene.overlay.y - reach - 1);
+      expect(mark.bottom).toBeLessThanOrEqual(scene.overlay.y + reach + 1);
+    }
+
+    // Depth runs by group, not by element: the near ring's mark passes in front
+    // of the far ring, and the far ring's mark passes behind the near one.
+    // Scoped-CSS breakage would show up here as an `auto` where a number
+    // belongs, which no unit test can see.
+    expect(scene.bigMark.zIndex).toBe('3');
+    expect(scene.ring.zIndex).toBe('1');
+    expect(scene.smallMark.zIndex).toBe('0');
+  });
+
+  it('routes a press on the satellite puck to its own drag surface', async () => {
+    await browser.url('/?window=overlay&fixture=e2e&ring=double');
+    await expect(
+      $('[data-testid="overlay-satellite-pointer-surface"]'),
+    ).toBeExisting();
+
+    const hits = await browser.execute(() => {
+      const satellite = document.querySelector<HTMLElement>(
+        '[data-testid="satellite-ring"]',
+      );
+      if (!satellite) throw new Error('satellite ring missing');
+      const rect = satellite.getBoundingClientRect();
+      return {
+        centre: document
+          .elementFromPoint(
+            rect.left + rect.width / 2,
+            rect.top + rect.height / 2,
+          )
+          ?.getAttribute('data-testid'),
+        corner: document
+          .elementFromPoint(rect.left + 1, rect.top + 1)
+          ?.getAttribute('data-testid'),
+      };
+    });
+
+    // The puck sits outside the pet's circular surface, so without its own hit
+    // area it would be a dead zone in the middle of the drag gesture.
+    expect(hits.centre).toBe('overlay-satellite-pointer-surface');
+    // Clipped to a circle like the pet's, so the bounding box corner misses.
+    expect(hits.corner).not.toBe('overlay-satellite-pointer-surface');
+  });
+
   it('hydrates provider panel and reaches settings via the footer button', async () => {
     await browser.url('/?window=panel&fixture=e2e');
     await expect($('section[aria-label="Usage panel"]')).toHaveText(
@@ -137,17 +235,21 @@ describe('CacheBite renderer fixture flows', () => {
     const weeklyReset = await $('section[aria-label="Weekly usage"] time');
     expect(await weeklyReset.getText()).toMatch(/^resets in \d+d \d+h \d+m$/);
 
-    await $('button[role="tab"][aria-label="Codex"]').click();
-    const primaryButton = await $('button=Set as primary');
+    // Both columns are on screen, so the control already names its target
+    // rather than following a tab selection.
+    const primaryButton = await $('button=Set Codex as primary');
     expect(await primaryButton.isEnabled()).toBe(true);
     await primaryButton.click();
-    await browser.waitUntil(async () => !(await primaryButton.isEnabled()));
+    // The candidate flips to the other side instead of disappearing.
+    await browser.waitUntil(async () =>
+      $('button=Set Claude as primary').isExisting(),
+    );
 
     await $('button=Settings').click();
     await expect($('input[type="checkbox"]')).toExist();
   });
 
-  it('uses the unified 312px vibrancy panel shell', async () => {
+  it('uses the unified 380px vibrancy panel shell', async () => {
     await browser.url('/?window=panel&fixture=e2e');
     await expect($('section[aria-label="Usage panel"]')).toBeDisplayed();
 
@@ -155,13 +257,15 @@ describe('CacheBite renderer fixture flows', () => {
       const panel = document.querySelector<HTMLElement>('main.panel');
       const header = panel?.querySelector<HTMLElement>('.usage-panel > header');
       const body = panel?.querySelector<HTMLElement>('.usage-panel > .body');
+      const column = panel?.querySelector<HTMLElement>('.usage-panel .column');
       const footer = panel?.querySelector<HTMLElement>('.usage-panel > footer');
-      if (!panel || !header || !body || !footer) {
+      if (!panel || !header || !body || !column || !footer) {
         throw new Error('panel layout missing');
       }
       const shellStyle = getComputedStyle(panel);
       const headerStyle = getComputedStyle(header);
       const bodyStyle = getComputedStyle(body);
+      const columnStyle = getComputedStyle(column);
       const footerStyle = getComputedStyle(footer);
       return {
         platform: panel.dataset.platform,
@@ -188,6 +292,12 @@ describe('CacheBite renderer fixture flows', () => {
           bodyStyle.paddingBottom,
           bodyStyle.paddingLeft,
         ],
+        columnPadding: [
+          columnStyle.paddingTop,
+          columnStyle.paddingRight,
+          columnStyle.paddingBottom,
+          columnStyle.paddingLeft,
+        ],
         footerPadding: [
           footerStyle.paddingTop,
           footerStyle.paddingRight,
@@ -199,13 +309,18 @@ describe('CacheBite renderer fixture flows', () => {
 
     expect(layout).toMatchObject({
       platform: 'linux',
-      outerWidth: 312,
+      outerWidth: 380,
       minHeight: '0px',
       borderRadius: '14px',
       backdropFilter: 'blur(20px)',
       shellPadding: ['0px', '0px', '0px', '0px'],
-      headerPadding: ['12px', '16px', '0px', '16px'],
-      bodyPadding: ['16px', '16px', '16px', '16px'],
+      // The header now carries a visible title and the bottom rule the tab
+      // strip used to draw, so it has padding on all four sides.
+      headerPadding: ['12px', '16px', '12px', '16px'],
+      // Body padding moved down to the columns: the divider between them has
+      // to split the body top to bottom, which a padded body would prevent.
+      bodyPadding: ['0px', '0px', '0px', '0px'],
+      columnPadding: ['16px', '16px', '16px', '16px'],
       footerPadding: ['12px', '16px', '14px', '16px'],
     });
     expect(layout.outerHeight).toBeLessThan(520);
@@ -253,50 +368,50 @@ describe('CacheBite renderer fixture flows', () => {
     expect(geometry.closeInsideShell).toBe(true);
   });
 
-  // The close control deliberately layers over the second tab rather than making
-  // the tab strip yield width (ui-contract.md §5). That trade-off is only
-  // acceptable while the overlap stays small, so the measured extent is pinned
-  // here: growing the icon or shrinking the header padding fails this test
-  // instead of silently eating more of the tab.
-  it('keeps the close control overlap over the second tab within contract', async () => {
+  // The tab-overlap contract that used to live here is gone with the tab strip:
+  // the close control no longer layers over anything but the header's own
+  // padding, which the spec above already measures.
+
+  it('renders one column per connected provider', async () => {
     await browser.url('/?window=panel&fixture=e2e');
     await expect($('section[aria-label="Usage panel"]')).toBeDisplayed();
 
-    const overlap = await browser.execute(() => {
-      const panel = document.querySelector<HTMLElement>('main.panel');
-      const close = panel?.querySelector<HTMLElement>('.close-panel');
-      const codex = [
-        ...(panel?.querySelectorAll<HTMLElement>('[role="tab"]') ?? []),
-      ].find((tab) => tab.getAttribute('aria-label')?.startsWith('Codex'));
-      if (!panel || !close || !codex) {
-        throw new Error('panel close control or Codex tab missing');
-      }
-      const c = close.getBoundingClientRect();
-      const t = codex.getBoundingClientRect();
-      const hit = (x: number, y: number) =>
-        document.elementFromPoint(x, y)?.getAttribute('aria-label') ?? '';
-      return {
-        width: Math.max(
-          0,
-          Math.min(c.right, t.right) - Math.max(c.left, t.left),
-        ),
-        height: Math.max(
-          0,
-          Math.min(c.bottom, t.bottom) - Math.max(c.top, t.top),
-        ),
-        tabWidth: t.width,
-        // The tab must stay usable everywhere the control does not cover.
-        hitAtTabCentre: hit(t.left + t.width / 2, t.top + t.height / 2),
-        hitAtTabLeftEdge: hit(t.left + 4, t.top + t.height / 2),
-      };
-    });
+    await expect($$('[data-provider]')).toBeElementsArrayOfSize(2);
+    await expect($('[data-provider="claude"]')).toBeDisplayed();
+    await expect($('[data-provider="codex"]')).toBeDisplayed();
 
-    expect(Math.round(overlap.width)).toBeLessThanOrEqual(14);
-    expect(Math.round(overlap.height)).toBeLessThanOrEqual(18);
-    // 14px of a ~139px tab measures 10.1%; the cap sits just above that so the
-    // contract figure is pinned without failing on sub-pixel tab widths.
-    expect(overlap.width / overlap.tabWidth).toBeLessThanOrEqual(0.105);
-    expect(overlap.hitAtTabCentre).toBe('Codex');
-    expect(overlap.hitAtTabLeftEdge).toBe('Codex');
+    // Side by side, not stacked — a collapsed grid would still pass the count.
+    const sideBySide = await browser.execute(() => {
+      const [first, second] = [
+        ...document.querySelectorAll<HTMLElement>('[data-provider]'),
+      ].map((column) => column.getBoundingClientRect());
+      if (!first || !second) throw new Error('two columns expected');
+      return first.right <= second.left + 1 && first.top === second.top;
+    });
+    expect(sideBySide).toBe(true);
+  });
+
+  it('collapses to a single column when only one provider is connected', async () => {
+    await browser.url('/?window=panel&fixture=e2e&panel=single');
+    await expect($('section[aria-label="Usage panel"]')).toBeDisplayed();
+
+    await expect($$('[data-provider]')).toBeElementsArrayOfSize(1);
+    await expect($('[data-provider="claude"]')).toBeDisplayed();
+
+    // The survivor takes the whole shell. Half the width would mean the grid
+    // kept two tracks and simply left one empty.
+    const fillsShell = await browser.execute(() => {
+      const panel = document.querySelector<HTMLElement>('main.panel');
+      const column = document.querySelector<HTMLElement>('[data-provider]');
+      if (!panel || !column) throw new Error('single column missing');
+      // `getBoundingClientRect` is fractional under a scaled device pixel ratio
+      // while `clientWidth` is integral, so compare with a 1px tolerance.
+      return (
+        Math.abs(column.getBoundingClientRect().width - panel.clientWidth) <= 1
+      );
+    });
+    expect(fillsShell).toBe(true);
+
+    await expect($('button=Refresh now')).toBeDisplayed();
   });
 });

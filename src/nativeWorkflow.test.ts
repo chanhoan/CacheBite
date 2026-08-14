@@ -186,8 +186,10 @@ describe('native production-composition spec', () => {
     expect(
       productionCase.indexOf('showPanelFromOverlayWindow()'),
     ).toBeGreaterThanOrEqual(0);
+    // Anchored on the first panel query in the case. The tab strip it used to
+    // point at is gone; the provider column is what the spec now reaches for.
     expect(productionCase.indexOf('showPanelFromOverlayWindow()')).toBeLessThan(
-      productionCase.indexOf('$(\'button[role="tab"]=Claude\')'),
+      productionCase.indexOf('$(\'[data-provider="claude"]\')'),
     );
   });
 

@@ -18,7 +18,6 @@ const REFRESH_TIMEOUT_MS = 30_000;
 export interface ProvidersStoreState {
   readonly claude: ProviderState;
   readonly codex: ProviderState;
-  readonly selected: Provider;
   readonly refreshing: Readonly<Record<Provider, boolean>>;
 }
 
@@ -28,7 +27,6 @@ export function createProvidersStore(
   const initial: ProvidersStoreState = {
     claude: createProviderState('claude'),
     codex: createProviderState('codex'),
-    selected: 'claude',
     refreshing: Object.freeze({ claude: false, codex: false }),
   };
   const { subscribe, update } = writable(initial);
@@ -178,9 +176,6 @@ export function createProvidersStore(
         };
       });
       return events;
-    },
-    selectTab(selected: Provider) {
-      update((state) => ({ ...state, selected }));
     },
     requestRefresh(provider: Provider) {
       const pending = refreshTimers.get(provider);

@@ -48,7 +48,15 @@
     type NotificationDiagnostic,
     type NotificationPolicyState,
   } from './lib/interaction/notificationPolicy';
-  import type { PetOverlayViewModel } from './lib/components/models';
+  import type {
+    OrbitDirection,
+    PetOverlayViewModel,
+  } from './lib/components/models';
+  import { PROVIDER_NAME, secondaryProvider } from './lib/contracts/domain';
+  import {
+    OVERLAY_BOUNDS_FACTOR,
+    orbitDirection,
+  } from './lib/components/orbitPath';
   import { validatePetManifest, type PetManifest } from './lib/assets/manifest';
   import {
     requestedAnimationKey,
@@ -78,7 +86,7 @@
   let startupState = $state<'loading' | 'error' | 'ready'>('loading');
   let collectorMode = $state<CollectorModeDiagnostic | null>(null);
   let appSettings = $state<AppSettings>({
-    schemaVersion: 5,
+    schemaVersion: 6,
     primaryProvider: 'claude',
     // Must match the Rust default (`store/settings.rs`). 'idle' is an animation
     // key, not a package id, so a getSettings() failure used to guarantee a
@@ -88,6 +96,8 @@
     startAtLogin: false,
     notificationsEnabled: false,
     secondaryNotificationsEnabled: false,
+    // Must match the Rust default (`RingMode::Single`).
+    ringMode: 'single',
     logicalPosition: { x: 0, y: 0 },
   });
   let showSettings = $state(false);
@@ -538,13 +548,49 @@
         )
       : null,
   );
+  // The satellite is a display preference only: it never touches collection,
+  // notification routing, or the pet mood, and the big ring stays bound to the
+  // primary whatever the connection state is.
+  const satelliteProvider = $derived(
+    appSettings.ringMode === 'double'
+      ? secondaryProvider(appSettings.primaryProvider)
+      : null,
+  );
+  // Picked once per overlay instance. A `$derived` would reroll on every
+  // recompute and make the mark stutter between directions. The panel never
+  // renders a walker, so it never spends the roll; the mapping itself is a pure
+  // function in `orbitPath`, and the randomness stops here.
+  const walkDirection: OrbitDirection =
+    windowLabel === 'overlay' ? orbitDirection(Math.random()) : 'forward';
+  // A speech bubble has to share the overlay window with the pet, so the pet
+  // gives up width while one is up. This is the ceiling it drops to.
+  const TOAST_OVERLAY_PX = 152;
+  // The bubble's clamp belongs here rather than in CSS. The walkers'
+  // `offset-path` values are absolute pixels measured against the overlay box —
+  // CSS `path()` takes no percentages — so a width that the stylesheet narrows
+  // but `model.size` still reports at its old value would leave the marks
+  // orbiting circles the rings no longer occupy. One source of truth for the
+  // rendered width, and everything sized from it follows.
+  //
+  // Note this ceiling does not currently bind: since the satellite moved out,
+  // `OVERLAY_BOUNDS_FACTOR` already clamps below 152, so `Math.min` never
+  // reaches it. Kept because the reasoning above survives any geometry, and
+  // `App.test.ts` pins the ordering — if the clamp ever rises back past 152
+  // that assertion fails and the bubble path needs covering again.
+  const sizeCeiling = $derived(
+    $interactionStore.bubblePolicy.bubble
+      ? TOAST_OVERLAY_PX
+      : OVERLAY_WINDOW_PX,
+  );
   // The overlay window is a fixed square (`tauri.conf.json`), so a manifest that
-  // declares something larger would simply be clipped. Clamp instead, and fall
-  // back to the window edge when no package has loaded.
+  // declares something larger would simply be clipped. The walking mark reaches
+  // furthest out, in both ring modes, so clamp by that. Fall back to the window
+  // edge when no package has loaded.
   const overlaySize = $derived(
     Math.min(
-      OVERLAY_WINDOW_PX,
+      OVERLAY_WINDOW_PX / OVERLAY_BOUNDS_FACTOR,
       petPackage?.manifest.defaultSize.width ?? OVERLAY_WINDOW_PX,
+      sizeCeiling,
     ),
   );
   const overlayModel = $derived<PetOverlayViewModel | null>(
@@ -564,6 +610,29 @@
           petName:
             petPackage?.manifest.displayName ?? appSettings.selectedPetId,
           size: overlaySize,
+          satellite: satelliteProvider
+            ? {
+                provider: satelliteProvider,
+                providerName: PROVIDER_NAME[satelliteProvider],
+                system: panelProviders[satelliteProvider].system,
+                stale: panelProviders[satelliteProvider].stale,
+                session: {
+                  usedPercent:
+                    panelProviders[satelliteProvider].session.usedPercent,
+                  severity: panelProviders[satelliteProvider].session.severity,
+                },
+                weekly: {
+                  usedPercent:
+                    panelProviders[satelliteProvider].weekly.usedPercent,
+                  severity: panelProviders[satelliteProvider].weekly.severity,
+                },
+              }
+            : null,
+          orbit: {
+            provider: appSettings.primaryProvider,
+            providerName: PROVIDER_NAME[appSettings.primaryProvider],
+            direction: walkDirection,
+          },
         }
       : null,
   );
@@ -708,16 +777,12 @@
       <UsagePanel
         updateAvailable={availableUpdateVersion !== null}
         providers={panelProviders}
-        selected={$providersStore.selected}
         primary={$settingsStore.primaryProvider}
-        refreshing={$providersStore.refreshing[$providersStore.selected]}
+        refreshing={$providersStore.refreshing}
         {nowMs}
         onClose={() => void gateway.hidePanel()}
         onQuit={() => void gateway.quit()}
         onSettings={() => (showSettings = true)}
-        onSelect={(provider) => {
-          providersStore.selectTab(provider);
-        }}
         onRefresh={(provider) => providersStore.requestRefresh(provider)}
         onPrimary={(provider) =>
           void changeSettings({ ...$settingsStore, primaryProvider: provider })}
@@ -739,8 +804,9 @@
         {notificationDiagnostic.reason}
       </p>{/if}
   {:else}
+    <!-- The bubble narrows the pet through `overlaySize`, not through a class
+         hook here; this attribute is the state readout the tests assert on. -->
     <div
-      class:toast-visible={Boolean($interactionStore.bubblePolicy.bubble)}
       class="overlay-stack"
       data-toast-visible={Boolean($interactionStore.bubblePolicy.bubble)}
     >
@@ -778,9 +844,6 @@
     align-items: center;
     justify-items: center;
     gap: 44px;
-  }
-  .overlay-stack.toast-visible :global(.overlay) {
-    max-width: min(9.5rem, 100vw);
   }
   .settings-view {
     display: grid;

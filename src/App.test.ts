@@ -13,6 +13,7 @@ import type {
   UpdateStateWire,
 } from './lib/api/gateway';
 import type { NotificationAdapter } from './lib/interaction/notificationPolicy';
+import { OVERLAY_BOUNDS_FACTOR } from './lib/components/orbitPath';
 
 const active = (
   provider: 'claude' | 'codex',
@@ -104,13 +105,14 @@ const fixture = () => {
       return () => undefined;
     }),
     getSettings: vi.fn(async () => ({
-      schemaVersion: 5,
+      schemaVersion: 6,
       primaryProvider: 'claude' as const,
       selectedPetId: 'tabby',
       bubblesEnabled: true,
       startAtLogin: false,
       notificationsEnabled: false,
       secondaryNotificationsEnabled: false,
+      ringMode: 'single' as const,
       logicalPosition: { x: 0, y: 0 },
     })),
     listenSettings: vi.fn(async (next) => {
@@ -406,7 +408,7 @@ describe('application composition root', () => {
 
     render(App, { props: { gateway, notificationAdapter: notifications } });
 
-    expect(await screen.findByText('Pro')).toBeTruthy();
+    expect(await screen.findAllByText('Pro')).toHaveLength(2);
     expect(screen.getAllByText('Unknown').length).toBeGreaterThanOrEqual(2);
   });
 
@@ -532,7 +534,7 @@ describe('application composition root', () => {
     window.history.replaceState({}, '', '/?window=panel');
     const { gateway } = fixture();
     render(App, { props: { gateway, notificationAdapter: notifications } });
-    expect(await screen.findByText('Pro')).toBeTruthy();
+    expect(await screen.findAllByText('Pro')).toHaveLength(2);
     await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     await fireEvent.click(screen.getByLabelText('Native notifications'));
     await waitFor(() => expect(gateway.updateSettings).toHaveBeenCalled());
@@ -543,11 +545,11 @@ describe('application composition root', () => {
     window.history.replaceState({}, '', '/?window=panel');
     const { gateway } = fixture();
     render(App, { props: { gateway, notificationAdapter: notifications } });
-    await screen.findByText('Pro');
+    await screen.findAllByText('Pro');
     await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     expect(screen.getByLabelText('Native notifications')).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: '← Back' }));
-    expect(await screen.findByText('Pro')).toBeTruthy();
+    expect(await screen.findAllByText('Pro')).toHaveLength(2);
     expect(screen.queryByLabelText('Native notifications')).toBeNull();
   });
 
@@ -607,26 +609,24 @@ describe('application composition root', () => {
     expect(disconnect).not.toHaveBeenCalled();
   });
 
-  it('changes primary only when Set as primary is clicked', async () => {
+  it('changes primary only when the named primary control is clicked', async () => {
     window.history.replaceState({}, '', '/?window=panel');
     const { gateway } = fixture();
     render(App, { props: { gateway, notificationAdapter: notifications } });
 
-    await fireEvent.click(await screen.findByRole('tab', { name: 'Codex' }));
+    // Both columns render at once, so nothing is selected on the way in — the
+    // control already names the provider it will promote.
+    const setPrimary = (await screen.findByRole('button', {
+      name: 'Set Codex as primary',
+    })) as HTMLButtonElement;
     expect(gateway.updateSettings).not.toHaveBeenCalled();
-    expect(screen.getByRole('tab', { name: 'Claude (primary)' })).toBeTruthy();
-    expect(
-      screen.getByRole('tab', { name: 'Codex' }).getAttribute('aria-selected'),
-    ).toBe('true');
-
-    const setPrimary = screen.getByRole('button', {
-      name: 'Set as primary',
-    }) as HTMLButtonElement;
+    expect(screen.getByLabelText('Claude usage (primary)')).toBeTruthy();
     expect(setPrimary.disabled).toBe(false);
+
     await fireEvent.click(setPrimary);
     await waitFor(() =>
       expect(gateway.updateSettings).toHaveBeenCalledWith(
-        // The pet is the user's choice ??switching the primary provider
+        // The pet is the user's choice — switching the primary provider
         // changes the data source, never the pet on screen.
         expect.objectContaining({
           primaryProvider: 'codex',
@@ -634,8 +634,12 @@ describe('application composition root', () => {
         }),
       ),
     );
-    expect(screen.getByRole('tab', { name: 'Codex (primary)' })).toBeTruthy();
-    expect(setPrimary.disabled).toBe(true);
+    // The star moves and the candidate flips to the other side rather than
+    // disappearing: with both columns visible there is always one to offer.
+    expect(screen.getByLabelText('Codex usage (primary)')).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'Set Claude as primary' }),
+    ).toBeTruthy();
   });
 
   it('changes the pet from settings without touching the primary provider', async () => {
@@ -690,18 +694,19 @@ describe('application composition root', () => {
     );
     render(App, { props: { gateway, notificationAdapter: notifications } });
 
-    await fireEvent.click(await screen.findByRole('tab', { name: 'Codex' }));
-    const setPrimary = screen.getByRole('button', {
-      name: 'Set as primary',
-    }) as HTMLButtonElement;
-    await fireEvent.click(setPrimary);
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Set Codex as primary' }),
+    );
 
     await screen.findByText('Settings could not be saved');
-    expect(screen.getByRole('tab', { name: 'Claude (primary)' })).toBeTruthy();
+    expect(screen.getByLabelText('Claude usage (primary)')).toBeTruthy();
     expect(
-      screen.getByRole('tab', { name: 'Codex' }).getAttribute('aria-selected'),
-    ).toBe('true');
-    expect(setPrimary.disabled).toBe(false);
+      (
+        screen.getByRole('button', {
+          name: 'Set Codex as primary',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
   });
 
   it('reports a claimed hide/show shortcut without touching saved settings', async () => {
@@ -738,7 +743,7 @@ describe('application composition root', () => {
       notificationsEnabled: true,
     });
     render(App, { props: { gateway, notificationAdapter: notifications } });
-    await screen.findByText('Pro');
+    await screen.findAllByText('Pro');
     await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     expect(
       (
@@ -769,7 +774,7 @@ describe('application composition root', () => {
       }),
     };
     render(App, { props: { gateway, notificationAdapter: serialized } });
-    await screen.findByText('Pro');
+    await screen.findAllByText('Pro');
     await waitFor(() =>
       expect(gateway.listenProviderStates).toHaveBeenCalledOnce(),
     );
@@ -788,7 +793,7 @@ describe('application composition root', () => {
       permission: vi.fn(async () => 'denied' as const),
     };
     render(App, { props: { gateway, notificationAdapter: denied } });
-    await screen.findByText('Pro');
+    await screen.findAllByText('Pro');
     await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     await fireEvent.click(screen.getByLabelText('Native notifications'));
     expect(
@@ -806,7 +811,7 @@ describe('application composition root', () => {
     window.history.replaceState({}, '', '/?window=panel');
     const { gateway } = fixture();
     render(App, { props: { gateway, notificationAdapter: notifications } });
-    await screen.findByText('Pro');
+    await screen.findAllByText('Pro');
     await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     await fireEvent.change(await screen.findByLabelText('Appearance'), {
       target: { value: 'dark' },
@@ -839,7 +844,7 @@ describe('application composition root', () => {
         return settings;
       });
     render(App, { props: { gateway, notificationAdapter: notifications } });
-    await screen.findByText('Pro');
+    await screen.findAllByText('Pro');
     await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     const bubbles = (await screen.findByLabelText(
       'Speech bubbles',
@@ -875,7 +880,7 @@ describe('application composition root', () => {
       .mockRejectedValueOnce(new Error('/private/settings.json secret payload'))
       .mockImplementationOnce(async (settings) => settings);
     render(App, { props: { gateway, notificationAdapter: notifications } });
-    await screen.findByText('Pro');
+    await screen.findAllByText('Pro');
     await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     const nativeNotifications = (await screen.findByLabelText(
       'Native notifications',
@@ -992,12 +997,13 @@ describe('application composition root', () => {
     try {
       const { gateway } = fixture();
       render(App, { props: { gateway, notificationAdapter: notifications } });
-      expect(await screen.findByText(/Fresh/)).toBeTruthy();
+      // One freshness line per column, and both providers are connected here.
+      expect(await screen.findAllByText(/Fresh/)).toHaveLength(2);
 
       // 21 minutes clears FRESH_MAX_AGE_MS with no snapshot in between: the
       // transition can only come from the clock ticker.
       await vi.advanceTimersByTimeAsync(21 * 60_000);
-      await waitFor(() => expect(screen.getByText(/Stale/)).toBeTruthy());
+      await waitFor(() => expect(screen.getAllByText(/Stale/)).toHaveLength(2));
     } finally {
       vi.useRealTimers();
     }
@@ -1007,7 +1013,7 @@ describe('application composition root', () => {
     window.history.replaceState({}, '', '/?window=panel');
     const { gateway, emit } = fixture();
     render(App, { props: { gateway, notificationAdapter: notifications } });
-    await screen.findByText('Pro');
+    await screen.findAllByText('Pro');
 
     emit({ ...active('claude', 3), snapshot: null, expired: true });
 
@@ -1023,10 +1029,27 @@ describe('application composition root', () => {
     window.history.replaceState({}, '', '/?window=panel');
     const { gateway, emit } = fixture();
     render(App, { props: { gateway, notificationAdapter: notifications } });
-    await screen.findByText('Pro');
+    await screen.findAllByText('Pro');
 
     emit({
       ...active('claude', 3),
+      snapshot: null,
+      expired: true,
+      unavailable_reason: 'not_signed_in',
+    });
+
+    // A signed-out provider is not connected, so while the other one still is
+    // the panel drops its column — guidance included. That is the cost of the
+    // auto-collapse rule, pinned here rather than left to be discovered.
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Claude usage (primary)')).toBeNull(),
+    );
+
+    // With neither provider connected there is nothing to collapse against, so
+    // both columns come back and the degradation reason is legible again —
+    // sign-in guidance rather than the retry line an `error` would print.
+    emit({
+      ...active('codex', 3),
       snapshot: null,
       expired: true,
       unavailable_reason: 'not_signed_in',
@@ -1096,7 +1119,7 @@ describe('application composition root', () => {
     render(App, {
       props: { gateway: harness.gateway, notificationAdapter: notifications },
     });
-    await screen.findByRole('button', { name: 'Refresh now' });
+    await screen.findByRole('button', { name: 'Refresh both' });
     await waitFor(() =>
       expect(harness.gateway.listenUpdateState).toHaveBeenCalled(),
     );
@@ -1175,5 +1198,160 @@ describe('application composition root', () => {
     expect(
       screen.queryByRole('button', { name: 'Install and restart' }),
     ).toBeNull();
+  });
+});
+
+// `PetOverlay.test.ts` injects a view model directly, so it proves the overlay
+// draws what it is handed but says nothing about whether the composition root
+// hands it the right thing. Without these, `overlayModel` could drop `satellite`
+// or `orbit` outright, or swap primary and secondary, and CI would stay green.
+describe('ring mode wiring', () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    window.history.replaceState({}, '', '/');
+  });
+
+  const doubleRing = async (
+    gateway: AppGateway,
+    overrides: Partial<Awaited<ReturnType<AppGateway['getSettings']>>> = {},
+  ) => {
+    vi.mocked(gateway.getSettings).mockResolvedValue({
+      ...(await gateway.getSettings()),
+      ringMode: 'double',
+      ...overrides,
+    });
+  };
+
+  const bothProvidersLive = (
+    emit: (state: ProviderBackendStateWire) => void,
+  ) => {
+    emit(active('claude', 2));
+    emit(active('codex', 2));
+  };
+
+  it('gives the satellite the other provider and its own usage', async () => {
+    const { gateway, emit } = fixture();
+    await doubleRing(gateway);
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+    await screen.findByLabelText('CacheBite pet status');
+
+    bothProvidersLive(emit);
+
+    const satellite = await screen.findByTestId('satellite-ring');
+    // Primary is claude, so the satellite must carry codex — and codex's own
+    // numbers (5-hour 20), not a second copy of the primary's (91). The mark
+    // rides the satellite's orbit; the ring itself carries the reading.
+    expect(
+      screen
+        .getByTestId('satellite-orbit-walker')
+        .querySelector('[data-testid="provider-logo-codex"]'),
+    ).not.toBeNull();
+    expect(
+      satellite
+        .querySelector('[data-testid="usage-ring"]')
+        ?.getAttribute('aria-label'),
+    ).toBe('Codex usage: 5-hour 20%, Weekly 40%');
+    expect(
+      satellite
+        .querySelector('[data-testid="satellite-readout"]')
+        ?.textContent?.trim(),
+    ).toBe('20');
+  });
+
+  it('keeps the walker on the primary and follows a primary change', async () => {
+    const { gateway, emit } = fixture();
+    await doubleRing(gateway, { primaryProvider: 'codex' });
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+    await screen.findByLabelText('CacheBite pet status');
+
+    bothProvidersLive(emit);
+
+    const walker = await screen.findByTestId('orbit-walker');
+    expect(walker.getAttribute('aria-label')).toBe('Primary provider: Codex');
+    expect(
+      walker.querySelector('[data-testid="provider-logo-codex"]'),
+    ).not.toBeNull();
+    // The satellite is derived, never stored, so flipping the primary flips it
+    // — and its mark with it.
+    expect(
+      screen
+        .getByTestId('satellite-orbit-walker')
+        .querySelector('[data-testid="provider-logo-claude"]'),
+    ).not.toBeNull();
+  });
+
+  it('draws no satellite in single mode but still walks the primary', async () => {
+    const { gateway, emit } = fixture();
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+    await screen.findByLabelText('CacheBite pet status');
+
+    bothProvidersLive(emit);
+
+    expect(await screen.findByTestId('orbit-walker')).toBeTruthy();
+    expect(screen.queryByTestId('satellite-ring')).toBeNull();
+    // Without this the satellite's own mark could leak into single mode and
+    // nothing here would notice — the primary's walker would still be present.
+    expect(screen.queryByTestId('satellite-orbit-walker')).toBeNull();
+  });
+
+  it('does not let ring mode reach notification routing', async () => {
+    // The invariant that makes the setting display-only. Notifications only opt
+    // in from the panel window (`configureNotifications` is panel-gated), which
+    // is already half the separation: the ring lives on the overlay. This pins
+    // the other half — with `double` selected, routing still answers to the
+    // primary and `secondaryNotificationsEnabled` alone.
+    window.history.replaceState({}, '', '/?window=panel');
+    const adapter: NotificationAdapter = {
+      capability: vi.fn(async () => ({ status: 'available' as const })),
+      permission: vi.fn(async () => 'granted' as const),
+      requestPermission: vi.fn(async () => 'granted' as const),
+      send: vi.fn(async () => undefined),
+    };
+    const { gateway, emit } = fixture();
+    await doubleRing(gateway, {
+      notificationsEnabled: true,
+      secondaryNotificationsEnabled: false,
+    });
+    render(App, { props: { gateway, notificationAdapter: adapter } });
+    await screen.findAllByText('Pro');
+
+    emit(active('codex', 2, 100));
+    await waitFor(() => expect(gateway.getSettings).toHaveBeenCalled());
+    expect(adapter.send).not.toHaveBeenCalled();
+
+    // The same event on the primary does notify, so the silence above is the
+    // secondary gate and not a dead notification path.
+    emit(active('claude', 3, 100));
+    await waitFor(() =>
+      expect(adapter.send).toHaveBeenCalledWith(
+        expect.objectContaining({ body: expect.stringContaining('Claude:') }),
+      ),
+    );
+  });
+
+  it('sizes the pet from the model rather than letting CSS clamp it', async () => {
+    // Both walkers' `offset-path` values are absolute pixels against
+    // `model.size`, so a width only the stylesheet knew about would leave the
+    // marks orbiting circles that are no longer there.
+    //
+    // The fixture pet asks for 160px. Since the satellite moved out to the
+    // right, the walkers' reach caps the overlay below that — and below the
+    // 152px bubble ceiling too, so raising a bubble no longer narrows anything.
+    // Should the geometry ever pull back inside 152, this assertion fails and
+    // the bubble path needs covering again.
+    const bounded = 240 / OVERLAY_BOUNDS_FACTOR;
+    expect(bounded).toBeLessThan(152);
+    expect(bounded).toBeLessThan(160);
+
+    const { gateway, emit } = fixture();
+    render(App, { props: { gateway, notificationAdapter: notifications } });
+    const overlay = await screen.findByLabelText('CacheBite pet status');
+    expect(overlay.style.width).toBe(`${bounded}px`);
+
+    emit(active('claude', 2, 100));
+    await screen.findByTestId('overlay-toast');
+
+    await waitFor(() => expect(overlay.style.width).toBe(`${bounded}px`));
   });
 });

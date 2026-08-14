@@ -35,7 +35,7 @@
         "label": "panel",
         "url": "index.html?window=panel",
         "title": "CacheBite Usage",
-        "width": 312,
+        "width": 380,
         "height": 520,
         "visible": false,
         "transparent": true,

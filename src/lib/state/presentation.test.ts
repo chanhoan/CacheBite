@@ -10,13 +10,14 @@ import {
 } from './presentation';
 
 const settings: AppSettings = {
-  schemaVersion: 5,
+  schemaVersion: 6,
   primaryProvider: 'claude',
   selectedPetId: 'tabby',
   bubblesEnabled: true,
   startAtLogin: false,
   notificationsEnabled: true,
   secondaryNotificationsEnabled: false,
+  ringMode: 'double',
   logicalPosition: { x: 12, y: 34 },
 };
 
@@ -42,6 +43,9 @@ describe('renderer presentation projections', () => {
       startAtLogin: false,
       notificationsEnabled: true,
       secondaryNotificationsEnabled: false,
+      // Carried through so the panel can drive the overlay's ring count;
+      // `schemaVersion` and `logicalPosition` deliberately stay behind.
+      ringMode: 'double',
     });
   });
 

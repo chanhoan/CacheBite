@@ -72,10 +72,21 @@
 </span>
 
 <style>
+  /* One knob for callers — `--badge-size` is the chip's diameter, and the glyph
+     follows it at the 9:16 proportion the badge gallery was drawn at. The
+     overlay's satellite is 36% of its box and hands this a size derived from
+     `model.size`; everywhere else the 2rem default keeps the chip as it was.
+
+     The border does not scale with it: it is a hairline separating the chip from
+     whatever sits behind, and what sits behind does not move closer as the chip
+     gets smaller. */
   .badge {
+    --badge-chip: var(--badge-size, 2rem);
+    --badge-glyph: calc(var(--badge-chip) * 0.5625);
+
     display: grid;
-    width: 2rem;
-    height: 2rem;
+    width: var(--badge-chip);
+    height: var(--badge-chip);
     place-items: center;
     border: 2.5px solid var(--color-surface);
     border-radius: 50%;
@@ -83,8 +94,8 @@
     box-shadow: 0 2px 6px rgb(0 0 0 / 20%);
   }
   svg {
-    width: 1.125rem;
-    height: 1.125rem;
+    width: var(--badge-glyph);
+    height: var(--badge-glyph);
     fill: none;
     stroke: currentColor;
     stroke-width: 2.3;

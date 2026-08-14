@@ -27,9 +27,16 @@
   );
 </script>
 
-<section class="gauge" aria-label={`${label} usage`} data-testid="usage-gauge">
+<!-- Grouped, not a landmark — see the note in `ProviderColumn.svelte`. The
+     progressbar inside already carries the reading; this only names its box. -->
+<section
+  class="gauge"
+  role="group"
+  aria-label={`${label} usage`}
+  data-testid="usage-gauge"
+>
   <div class="gauge-heading">
-    <span>{label} window</span>
+    <span>{label}</span>
     <strong data-severity={usage.severity}
       >{usage.usedPercent === null
         ? 'Unknown'
