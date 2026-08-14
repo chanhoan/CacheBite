@@ -386,11 +386,10 @@ describe(`CacheBite native ${expectedMode} composition smoke`, () => {
         await expect($('button=Settings')).toExist();
         await expect($('[data-testid="settings-update-dot"]')).not.toExist();
 
-        // Usage collection is untouched by a failed update check. Both fixture
-        // providers report unavailable, so neither is connected and the panel
-        // keeps both columns — which is what makes this `Refresh both`.
+        // Usage collection is untouched by a failed update check. The refresh
+        // control reads the same whether one or both columns are showing.
         await expect($('section[aria-label="Usage panel"]')).toExist();
-        await $('button=Refresh both').click();
+        await $('button=Refresh now').click();
         await expect($('section[aria-label="Usage panel"]')).toExist();
         await $('button=Settings').click();
         await expect($('.update-available-row')).not.toExist();
