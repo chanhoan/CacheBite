@@ -1,4 +1,7 @@
-use super::{broker::ClaudeTokenSource, Collector, CollectorError, MAX_RESPONSE_BYTES};
+use super::{
+    broker::{ClaudeCredential, ClaudeTokenSource},
+    Collector, CollectorError, MAX_RESPONSE_BYTES,
+};
 use crate::domain::{CollectionOutcome, Provider, ProviderUsageSnapshot, Source, UsageWindow};
 use reqwest::{
     header::{HeaderMap, HeaderName, HeaderValue},
@@ -32,8 +35,9 @@ impl Collector for ClaudeCollector {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = CollectionOutcome> + Send + '_>> {
         Box::pin(async move {
             let result = match self.token_source.claude_token().await {
-                Ok(token) => {
-                    fetch_usage_with_client(&self.client, token, OffsetDateTime::now_utc()).await
+                Ok(credential) => {
+                    fetch_usage_with_client(&self.client, credential, OffsetDateTime::now_utc())
+                        .await
                 }
                 Err(error) => Err(error),
             };
@@ -106,9 +110,13 @@ impl ClaudeRequestSpec {
 
 async fn fetch_usage_with_client(
     client: &reqwest::Client,
-    token: SecretString,
+    credential: ClaudeCredential,
     now: OffsetDateTime,
 ) -> Result<ProviderUsageSnapshot, CollectorError> {
+    let ClaudeCredential {
+        token,
+        subscription_type,
+    } = credential;
     let mut response = ClaudeRequestSpec::new(token)?
         .into_request(client)
         .send()
@@ -145,7 +153,7 @@ async fn fetch_usage_with_client(
         }
         body.extend_from_slice(&chunk);
     }
-    parse_usage(&body, now)
+    parse_usage(&body, now, subscription_type)
 }
 
 fn secure_client() -> Result<reqwest::Client, CollectorError> {
@@ -160,6 +168,7 @@ fn secure_client() -> Result<reqwest::Client, CollectorError> {
 pub fn parse_usage(
     body: &[u8],
     now: OffsetDateTime,
+    plan_type: Option<String>,
 ) -> Result<ProviderUsageSnapshot, CollectorError> {
     if body.len() > MAX_RESPONSE_BYTES {
         return Err(CollectorError::ResponseTooLarge);
@@ -172,7 +181,10 @@ pub fn parse_usage(
     }
     Ok(ProviderUsageSnapshot {
         provider: Provider::Claude,
-        plan_type: None,
+        // From the credential file, not this response: the usage endpoint
+        // carries no plan field. Claude Code's own `/status` reads the tier
+        // from the same file this collector already opens for the token.
+        plan_type,
         session,
         weekly,
         captured_at: now,
