@@ -549,22 +549,23 @@ async fn wsl_codex_cancellation_kills_and_reaps_fake_launcher() {
     let task = tokio::spawn(async move { collector.collect().await });
     let pid_file = root.path().join("pid");
     let child_pid_file = root.path().join("child-pid");
+    // Poll on a *parsed* pid, not on the file existing. The shell's `>` creates
+    // the file before `echo` writes into it, so `exists()` turns true a moment
+    // before there is anything to read — and an empty read panics with
+    // `ParseIntError { kind: Empty }` instead of failing the assertion below.
+    // The window is small but real, and macOS runners hit it.
+    let read_pid = |path: &std::path::Path| -> Option<i32> {
+        fs::read_to_string(path).ok()?.trim().parse().ok()
+    };
+    let mut reported = None;
     for _ in 0..100 {
-        if pid_file.exists() && child_pid_file.exists() {
+        if let (Some(pid), Some(child_pid)) = (read_pid(&pid_file), read_pid(&child_pid_file)) {
+            reported = Some((pid, child_pid));
             break;
         }
         tokio::time::sleep(Duration::from_millis(1)).await;
     }
-    let pid: i32 = fs::read_to_string(pid_file)
-        .unwrap()
-        .trim()
-        .parse()
-        .unwrap();
-    let child_pid: i32 = fs::read_to_string(child_pid_file)
-        .unwrap()
-        .trim()
-        .parse()
-        .unwrap();
+    let (pid, child_pid) = reported.expect("fake launcher never reported its pids");
     task.abort();
     let _ = task.await;
     for _ in 0..100 {
