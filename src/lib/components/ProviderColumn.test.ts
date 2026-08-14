@@ -85,10 +85,14 @@ describe('ProviderColumn', () => {
       },
     });
 
+    // Two stacked lines rather than one clipped line, so the whole sentence
+    // survives at a column's width.
     const freshness = container.querySelector('.freshness');
-    expect(freshness?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
-      '● Stale · captured 2 min ago',
-    );
+    expect(
+      [...(freshness?.children ?? [])].map((line) =>
+        line.textContent?.replace(/\s+/g, ' ').trim(),
+      ),
+    ).toEqual(['● Stale', 'captured 2 min ago']);
     expect(freshness?.textContent).not.toMatch(/oauth_api|cli_rpc|cached/);
   });
 
