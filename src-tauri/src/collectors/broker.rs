@@ -9,7 +9,18 @@ pub(crate) const MAX_CREDENTIAL_BYTES: u64 = 64 * 1024;
 pub trait ClaudeTokenSource: Send + Sync {
     fn claude_token(
         &self,
-    ) -> Pin<Box<dyn Future<Output = Result<SecretString, CollectorError>> + Send + '_>>;
+    ) -> Pin<Box<dyn Future<Output = Result<ClaudeCredential, CollectorError>> + Send + '_>>;
+}
+
+/// A Claude credential as the collectors need it: the bearer token, plus the
+/// subscription tier that sits beside it in the same file.
+///
+/// The tier is a plain `String`, not a `SecretString`: `"pro"` / `"max"` is a
+/// plan grade, not an authorization value or an account identifier, and the
+/// panel is meant to display it. Only the token is zeroized.
+pub struct ClaudeCredential {
+    pub token: SecretString,
+    pub subscription_type: Option<String>,
 }
 
 #[derive(Clone)]
@@ -49,14 +60,20 @@ impl CredentialBroker {
         }
     }
 
-    pub fn claude_token(&self) -> Result<SecretString, CollectorError> {
+    pub fn claude_token(&self) -> Result<ClaudeCredential, CollectorError> {
         if let Some(value) = &self.environment_token {
-            return Ok(SecretString::from(value.expose_secret().to_owned()));
+            // `CLAUDE_CODE_OAUTH_TOKEN` bypasses the credential file, which is
+            // the only place the tier is recorded — so there is nothing to
+            // report and the panel simply shows no chip.
+            return Ok(ClaudeCredential {
+                token: SecretString::from(value.expose_secret().to_owned()),
+                subscription_type: None,
+            });
         }
         let mut saw_invalid = false;
         for path in &self.locations.claude {
-            match read_token(path) {
-                Ok(Some(token)) => return Ok(token),
+            match read_credential(path) {
+                Ok(Some(credential)) => return Ok(credential),
                 Ok(None) => {}
                 Err(()) => saw_invalid = true,
             }
@@ -72,12 +89,12 @@ impl CredentialBroker {
 impl ClaudeTokenSource for CredentialBroker {
     fn claude_token(
         &self,
-    ) -> Pin<Box<dyn Future<Output = Result<SecretString, CollectorError>> + Send + '_>> {
+    ) -> Pin<Box<dyn Future<Output = Result<ClaudeCredential, CollectorError>> + Send + '_>> {
         Box::pin(std::future::ready(self.claude_token()))
     }
 }
 
-fn read_token(path: &std::path::Path) -> Result<Option<SecretString>, ()> {
+fn read_credential(path: &std::path::Path) -> Result<Option<ClaudeCredential>, ()> {
     let mut file = match File::open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -100,11 +117,19 @@ fn read_token(path: &std::path::Path) -> Result<Option<SecretString>, ()> {
     result
 }
 
-pub(crate) fn parse_token_bytes(contents: &[u8]) -> Result<Option<SecretString>, ()> {
+pub(crate) fn parse_token_bytes(contents: &[u8]) -> Result<Option<ClaudeCredential>, ()> {
     if contents.len() as u64 > MAX_CREDENTIAL_BYTES {
         return Err(());
     }
     let mut wire: ClaudeCredentials = serde_json::from_slice(contents).map_err(|_| ())?;
+    // Read the tier before the token is taken: the tier lives in the same
+    // nested object, and taking the token first is a refactor away from
+    // leaving this reading an emptied struct.
+    let subscription_type = wire
+        .claude_ai_oauth
+        .as_mut()
+        .and_then(|oauth| oauth.subscription_type.take())
+        .filter(|value| !value.is_empty());
     let token = wire
         .claude_ai_oauth
         .as_mut()
@@ -116,7 +141,10 @@ pub(crate) fn parse_token_bytes(contents: &[u8]) -> Result<Option<SecretString>,
             value.zeroize();
             Ok(None)
         }
-        Some(value) => Ok(Some(SecretString::from(value))),
+        Some(value) => Ok(Some(ClaudeCredential {
+            token: SecretString::from(value),
+            subscription_type,
+        })),
         None => Ok(None),
     }
 }
@@ -142,10 +170,18 @@ impl Drop for ClaudeCredentials {
 struct OAuthCredentials {
     #[serde(rename = "accessToken")]
     access_token: Option<String>,
+    // The one field beyond the token this parser opens. Claude Code's own
+    // `/status` reads the tier from here; the usage endpoint does not carry it
+    // (checked — 18 top-level keys, none a tier). `rateLimitTier` sits beside
+    // it and is deliberately left unparsed: nothing displays it.
+    #[serde(rename = "subscriptionType")]
+    subscription_type: Option<String>,
 }
 
 impl Drop for OAuthCredentials {
     fn drop(&mut self) {
+        // Only the token. The tier is not a secret, and zeroizing it would tell
+        // the next reader that it is one.
         self.access_token.zeroize();
     }
 }

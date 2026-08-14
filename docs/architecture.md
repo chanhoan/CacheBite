@@ -159,11 +159,15 @@ anthropic-beta: oauth-2025-04-20
 User-Agent: claude-code/<compatible version>
 ```
 
-The collector reads credentials through a credential broker:
+The collector reads credentials through a credential broker, in this order:
 
-1. The Claude Code keychain entry on macOS.
+1. The `CLAUDE_CODE_OAUTH_TOKEN` environment variable.
 2. The active `CLAUDE_CONFIG_DIR` credential file.
 3. The default `~/.claude/.credentials.json` credential file.
+
+CacheBite reads no platform keychain, so a credential that exists only there is not found.
+
+The broker returns the bearer token together with the `claudeAiOauth.subscriptionType` recorded beside it, which becomes the snapshot's `plan_type`. That tier is a plan grade rather than an authorization value or an account identifier, so only the token is treated as a secret and zeroized. The usage endpoint carries no tier field, and the `CLAUDE_CODE_OAUTH_TOKEN` path never touches the file, so both cases simply report no tier. `rateLimitTier` sits in the same object and is deliberately left unparsed.
 
 The response's `five_hour` and `seven_day` windows are mapped to the normalized model. The parser accepts known field variants defensively and rejects malformed percentages or reset timestamps.
 

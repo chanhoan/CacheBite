@@ -1,10 +1,9 @@
 use super::{
-    broker::{parse_token_bytes, ClaudeTokenSource, MAX_CREDENTIAL_BYTES},
+    broker::{parse_token_bytes, ClaudeCredential, ClaudeTokenSource, MAX_CREDENTIAL_BYTES},
     codex::collect_app_server_child_with_pgid,
     Collector, CollectorError,
 };
 use crate::domain::{CollectionOutcome, Provider};
-use secrecy::SecretString;
 #[cfg(any(windows, test))]
 use std::path::Path;
 #[cfg(windows)]
@@ -271,7 +270,7 @@ impl WslCredentialSource {
         Self { factory }
     }
 
-    pub async fn claude_token(&self) -> Result<SecretString, CollectorError> {
+    pub async fn claude_token(&self) -> Result<ClaudeCredential, CollectorError> {
         let mut output = self
             .factory
             .process
@@ -284,7 +283,7 @@ impl WslCredentialSource {
             return Err(CollectorError::CredentialFileInvalid);
         }
         let result = match parse_token_bytes(&output.stdout) {
-            Ok(Some(token)) => Ok(token),
+            Ok(Some(credential)) => Ok(credential),
             Ok(None) | Err(()) => Err(CollectorError::CredentialFileInvalid),
         };
         output.stdout.zeroize();
@@ -345,7 +344,7 @@ fn windows_system_directory() -> Result<PathBuf, CollectorError> {
 impl ClaudeTokenSource for WslCredentialSource {
     fn claude_token(
         &self,
-    ) -> Pin<Box<dyn Future<Output = Result<SecretString, CollectorError>> + Send + '_>> {
+    ) -> Pin<Box<dyn Future<Output = Result<ClaudeCredential, CollectorError>> + Send + '_>> {
         Box::pin(WslCredentialSource::claude_token(self))
     }
 }

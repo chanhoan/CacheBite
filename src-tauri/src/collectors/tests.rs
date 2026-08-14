@@ -1,7 +1,7 @@
 #[cfg(unix)]
 use super::codex::collect_app_server_child_with_pgid;
 use super::{
-    broker::{CredentialBroker, CredentialLocations},
+    broker::{parse_token_bytes, CredentialBroker, CredentialLocations},
     claude::{parse_usage, ClaudeRequestSpec},
     codex::{
         classify_spawn_error, collect_app_server, parse_pgid_handshake, parse_rate_limits,
@@ -603,9 +603,21 @@ async fn wsl_claude_parses_secret_from_bounded_output() {
         stdout: br#"{"claudeAiOauth":{"accessToken":"wsl-secret"}}"#.to_vec(),
     }));
     assert_eq!(
-        source.claude_token().await.unwrap().expose_secret(),
+        source.claude_token().await.unwrap().token.expose_secret(),
         "wsl-secret"
     );
+}
+
+#[tokio::test]
+async fn wsl_claude_carries_the_subscription_tier_alongside_the_secret() {
+    let source = fake_wsl(Ok(ProcessOutput {
+        status: 0,
+        stdout: br#"{"claudeAiOauth":{"accessToken":"wsl-secret","subscriptionType":"pro"}}"#
+            .to_vec(),
+    }));
+    let credential = source.claude_token().await.unwrap();
+    assert_eq!(credential.token.expose_secret(), "wsl-secret");
+    assert_eq!(credential.subscription_type.as_deref(), Some("pro"));
 }
 
 #[tokio::test]
@@ -658,7 +670,10 @@ async fn wsl_claude_diagnostics_do_not_expose_output() {
     }))
     .claude_token()
     .await
-    .unwrap_err();
+    // Not `unwrap_err`: that would need `ClaudeCredential: Debug`, and the
+    // credential deliberately has no `Debug` at all.
+    .err()
+    .expect("a failing credential read reports an error");
     assert_eq!(error, CollectorError::CredentialsMissing);
     assert!(!error.to_string().contains(diagnostic_marker));
 }
@@ -951,7 +966,7 @@ fn broker_uses_environment_before_file_and_never_writes() {
             claude: vec![file.clone()],
         },
     );
-    let token = broker.claude_token().unwrap();
+    let token = broker.claude_token().unwrap().token;
     assert_eq!(token.expose_secret(), "env-value");
     assert_eq!(fs::read(file).unwrap(), before);
     assert!(!format!("{token:?}").contains("env-value"));
@@ -993,7 +1008,10 @@ fn broker_uses_first_available_read_only_location() {
             claude: vec![first, second],
         },
     );
-    assert_eq!(broker.claude_token().unwrap().expose_secret(), "first");
+    assert_eq!(
+        broker.claude_token().unwrap().token.expose_secret(),
+        "first"
+    );
 }
 
 #[test]
@@ -1009,7 +1027,10 @@ fn broker_skips_corrupt_candidate_but_reports_all_corrupt() {
             claude: vec![corrupt.clone(), valid],
         },
     );
-    assert_eq!(broker.claude_token().unwrap().expose_secret(), "valid");
+    assert_eq!(
+        broker.claude_token().unwrap().token.expose_secret(),
+        "valid"
+    );
     let broker = CredentialBroker::new(
         BTreeMap::new(),
         CredentialLocations {
@@ -1020,6 +1041,56 @@ fn broker_skips_corrupt_candidate_but_reports_all_corrupt() {
         broker.claude_token(),
         Err(CollectorError::CredentialFileInvalid)
     ));
+}
+
+#[test]
+fn credential_parser_reads_the_tier_beside_the_token() {
+    let credential =
+        parse_token_bytes(br#"{"claudeAiOauth":{"accessToken":"t","subscriptionType":"max"}}"#)
+            .unwrap()
+            .expect("a file carrying a token is a credential");
+    assert_eq!(credential.token.expose_secret(), "t");
+    assert_eq!(credential.subscription_type.as_deref(), Some("max"));
+}
+
+#[test]
+fn credential_parser_folds_a_missing_or_empty_tier_to_none() {
+    for contents in [
+        br#"{"claudeAiOauth":{"accessToken":"t"}}"#.as_slice(),
+        br#"{"claudeAiOauth":{"accessToken":"t","subscriptionType":""}}"#,
+        br#"{"accessToken":"t"}"#,
+    ] {
+        let credential = parse_token_bytes(contents)
+            .unwrap()
+            .expect("a file carrying a token is a credential");
+        assert_eq!(credential.token.expose_secret(), "t");
+        assert!(credential.subscription_type.is_none());
+    }
+}
+
+#[test]
+fn credential_parser_rejects_an_empty_token_even_when_a_tier_is_present() {
+    assert!(
+        parse_token_bytes(br#"{"claudeAiOauth":{"accessToken":"","subscriptionType":"max"}}"#)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn broker_reports_no_tier_for_an_environment_token() {
+    let root = tempdir();
+    let file = root.path().join("claude.json");
+    fs::write(
+        &file,
+        r#"{"claudeAiOauth":{"accessToken":"file-value","subscriptionType":"max"}}"#,
+    )
+    .unwrap();
+    let env = BTreeMap::from([("CLAUDE_CODE_OAUTH_TOKEN".into(), "env-value".into())]);
+    let broker = CredentialBroker::new(env, CredentialLocations { claude: vec![file] });
+    let credential = broker.claude_token().unwrap();
+    assert_eq!(credential.token.expose_secret(), "env-value");
+    assert!(credential.subscription_type.is_none());
 }
 
 #[test]
@@ -1040,7 +1111,7 @@ fn errors_map_to_typed_outcomes_without_provider_cross_talk() {
         }
     );
     let now = OffsetDateTime::UNIX_EPOCH;
-    assert!(parse_usage(br#"{"five_hour":{"percent":1}}"#, now).is_ok());
+    assert!(parse_usage(br#"{"five_hour":{"percent":1}}"#, now, None).is_ok());
     assert!(parse_rate_limits(br#"{"primary":{}}"#, now).is_err());
 }
 
@@ -1071,7 +1142,7 @@ fn claude_request_is_fixed_https_allowlisted_and_secret_safe() {
 fn claude_parser_accepts_known_variants_and_rejects_bad_schema() {
     let now = OffsetDateTime::UNIX_EPOCH;
     let body = br#"{"five_hour":{"utilization":12.5,"resets_at":"2025-01-01T00:00:00Z"},"seven_day":{"percent":88,"reset_at":"2025-01-07T00:00:00Z"},"extra":true}"#;
-    let snapshot = parse_usage(body, now).unwrap();
+    let snapshot = parse_usage(body, now, None).unwrap();
     let serialized = serde_json::to_string(&snapshot).unwrap();
     assert!(!serialized.contains("marker-secret"));
     assert_eq!(snapshot.provider, Provider::Claude);
@@ -1082,12 +1153,29 @@ fn claude_parser_accepts_known_variants_and_rejects_bad_schema() {
         br#"{"five_hour":{"utilization":"x"}}"#,
         br#"{"five_hour":{"utilization":null}}"#,
     ] {
-        assert!(matches!(parse_usage(bad, now), Err(CollectorError::Parse)));
+        assert!(matches!(
+            parse_usage(bad, now, None),
+            Err(CollectorError::Parse)
+        ));
     }
     assert!(matches!(
-        parse_usage(&vec![b'x'; 1_048_577], now),
+        parse_usage(&vec![b'x'; 1_048_577], now, None),
         Err(CollectorError::ResponseTooLarge)
     ));
+}
+
+#[test]
+fn claude_parser_carries_the_credential_tier_into_the_snapshot() {
+    let now = OffsetDateTime::UNIX_EPOCH;
+    let body = br#"{"five_hour":{"percent":1}}"#;
+    assert_eq!(
+        parse_usage(body, now, Some("max".to_owned()))
+            .unwrap()
+            .plan_type
+            .as_deref(),
+        Some("max")
+    );
+    assert!(parse_usage(body, now, None).unwrap().plan_type.is_none());
 }
 
 #[test]
