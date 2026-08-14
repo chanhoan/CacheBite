@@ -536,6 +536,31 @@ async fn wsl_codex_times_out_and_reaps_hanging_launcher() {
     assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
 }
 
+/// Waits until both files hold a parseable pid, then returns the pair.
+///
+/// Polling on `Path::exists` is what these tests used to do, and it is wrong:
+/// the shell's `>` creates the file *before* `echo` writes into it, so the path
+/// exists a moment before there is anything to read. Reading in that window
+/// yields an empty string, and `"".parse::<i32>().unwrap()` panics with
+/// `ParseIntError { kind: Empty }` rather than failing an assertion. The window
+/// is narrow but real — macOS runners hit it.
+#[cfg(unix)]
+async fn await_reported_pids(
+    pid_file: &std::path::Path,
+    child_pid_file: &std::path::Path,
+) -> Option<(i32, i32)> {
+    let read_pid = |path: &std::path::Path| -> Option<i32> {
+        fs::read_to_string(path).ok()?.trim().parse().ok()
+    };
+    for _ in 0..100 {
+        if let (Some(pid), Some(child_pid)) = (read_pid(pid_file), read_pid(child_pid_file)) {
+            return Some((pid, child_pid));
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    None
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn wsl_codex_cancellation_kills_and_reaps_fake_launcher() {
@@ -549,23 +574,9 @@ async fn wsl_codex_cancellation_kills_and_reaps_fake_launcher() {
     let task = tokio::spawn(async move { collector.collect().await });
     let pid_file = root.path().join("pid");
     let child_pid_file = root.path().join("child-pid");
-    // Poll on a *parsed* pid, not on the file existing. The shell's `>` creates
-    // the file before `echo` writes into it, so `exists()` turns true a moment
-    // before there is anything to read — and an empty read panics with
-    // `ParseIntError { kind: Empty }` instead of failing the assertion below.
-    // The window is small but real, and macOS runners hit it.
-    let read_pid = |path: &std::path::Path| -> Option<i32> {
-        fs::read_to_string(path).ok()?.trim().parse().ok()
-    };
-    let mut reported = None;
-    for _ in 0..100 {
-        if let (Some(pid), Some(child_pid)) = (read_pid(&pid_file), read_pid(&child_pid_file)) {
-            reported = Some((pid, child_pid));
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(1)).await;
-    }
-    let (pid, child_pid) = reported.expect("fake launcher never reported its pids");
+    let (pid, child_pid) = await_reported_pids(&pid_file, &child_pid_file)
+        .await
+        .expect("fake launcher never reported its pids");
     task.abort();
     let _ = task.await;
     for _ in 0..100 {
@@ -1286,22 +1297,9 @@ async fn cancelling_collection_kills_and_reaps_process_group() {
         tokio::spawn(
             async move { collect_app_server(&executable, OffsetDateTime::UNIX_EPOCH).await },
         );
-    for _ in 0..100 {
-        if pid_file.exists() && child_pid_file.exists() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(1)).await;
-    }
-    let pid: i32 = fs::read_to_string(&pid_file)
-        .unwrap()
-        .trim()
-        .parse()
-        .unwrap();
-    let child_pid: i32 = fs::read_to_string(&child_pid_file)
-        .unwrap()
-        .trim()
-        .parse()
-        .unwrap();
+    let (pid, child_pid) = await_reported_pids(&pid_file, &child_pid_file)
+        .await
+        .expect("hanging app-server never reported its pids");
     task.abort();
     let _ = task.await;
     for _ in 0..100 {
