@@ -1,0 +1,36 @@
+name: Codex CLI compatibility
+
+# codex-cli 0.149.0 removed `--ask-for-approval untrusted` and CacheBite's Codex
+# collection broke silently for every user until someone reported it. Nothing in
+# `ci.yml` installs the Codex CLI, so no existing job can see an upstream change
+# to the argument surface. This one watches for the next one.
+on:
+  schedule:
+    # Mondays 06:00 UTC.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/check-codex-cli-compat.sh'
+      - '.github/workflows/codex-cli-compat.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  argument-surface:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      # Deliberately unpinned: this job exists to see what the LATEST Codex CLI
+      # accepts. Pinning it to a SHA-style version, as every action above is
+      # pinned, would make the guard permanently blind to the change it watches
+      # for. The job carries no secrets and only `contents: read`.
+      - name: Install the latest Codex CLI
+        run: npm install -g @openai/codex@latest
+      - name: Check CacheBite's fixed argument list still parses
+        run: bash scripts/check-codex-cli-compat.sh

@@ -4,14 +4,15 @@ use super::{
     broker::{parse_token_bytes, CredentialBroker, CredentialLocations},
     claude::{parse_usage, ClaudeRequestSpec},
     codex::{
-        classify_spawn_error, collect_app_server, parse_pgid_handshake, parse_rate_limits,
-        resolve_codex_executable, CodexCollector, RpcSession,
+        app_server_argv, classify_launch_exit, classify_spawn_error, collect_app_server,
+        parse_pgid_handshake, parse_rate_limits, resolve_codex_executable, CodexCollector,
+        RpcSession,
     },
     fallback::{FallbackCollector, FallbackTrigger},
     wsl::{
         codex_cleanup_args, validate_system_wsl_path, ProcessOutput, WslCodexCollector,
         WslCommandFactory, WslCredentialSource, CLAUDE_CREDENTIAL_SCRIPT, CODEX_CLEANUP_SCRIPT,
-        CODEX_LAUNCH_SCRIPT, CODEX_PROBE_SCRIPT,
+        CODEX_INTERACTIVE_LAUNCH_SCRIPT, CODEX_LAUNCH_SCRIPT, CODEX_PROBE_SCRIPT,
     },
     Collector, CollectorError,
 };
@@ -71,13 +72,50 @@ fn fake_wsl(result: Result<ProcessOutput, CollectorError>) -> WslCredentialSourc
 }
 
 #[test]
+fn native_codex_argv_is_fixed() {
+    // codex-cli 0.149.0 accepts only `on-request` and `never` for
+    // --ask-for-approval, and `-s`/`-a` are root options that must precede the
+    // `app-server` subcommand. Nothing else pinned this list, so the CLI dropping
+    // a value reached users as a silent protocol failure.
+    assert_eq!(
+        app_server_argv(),
+        ["-s", "read-only", "-a", "never", "app-server"]
+    );
+}
+
+#[test]
+fn the_compatibility_script_checks_the_argv_the_collector_actually_sends() {
+    // scripts/check-codex-cli-compat.sh is the only guard that sees an upstream
+    // CLI change before users do, and it is worthless the moment it drifts from
+    // the argument list this crate actually spawns.
+    let script = fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("scripts")
+            .join("check-codex-cli-compat.sh"),
+    )
+    .expect("compatibility script is missing");
+    // Match the executed line, not just the argv: a stale comment mentioning the
+    // right arguments must not be enough to satisfy this.
+    assert!(script.contains(&format!("codex {} </dev/null", app_server_argv().join(" "))));
+}
+
+#[test]
 fn wsl_codex_arguments_are_fixed() {
     assert_eq!(
         CODEX_PROBE_SCRIPT,
         "bash -lc 'type -P codex >/dev/null 2>&1'"
     );
-    assert!(CODEX_LAUNCH_SCRIPT.contains("exec codex -s read-only -a untrusted app-server"));
+    // codex-cli 0.149.0 dropped `untrusted` from --ask-for-approval, leaving only
+    // `on-request` and `never`; the removed value made the CLI reject the whole
+    // invocation. Both launchers must carry the same policy, or the fix only
+    // reaches users whose Codex is on the login-shell PATH.
+    assert!(CODEX_LAUNCH_SCRIPT.contains("exec codex -s read-only -a never app-server"));
+    assert!(CODEX_INTERACTIVE_LAUNCH_SCRIPT.contains("exec codex -s read-only -a never app-server"));
+    assert!(!CODEX_LAUNCH_SCRIPT.contains("untrusted"));
+    assert!(!CODEX_INTERACTIVE_LAUNCH_SCRIPT.contains("untrusted"));
     assert!(CODEX_LAUNCH_SCRIPT.contains("setsid --wait bash -lc"));
+    assert!(CODEX_INTERACTIVE_LAUNCH_SCRIPT.contains("setsid --wait bash -ic"));
     assert!(CODEX_LAUNCH_SCRIPT.contains("\\nCACHEBITE_PGID"));
     assert!(CODEX_LAUNCH_SCRIPT.contains("CACHEBITE_PGID:%s"));
     assert!(CODEX_CLEANUP_SCRIPT.contains("*[!0-9]*"));
@@ -272,7 +310,7 @@ async fn wsl_codex_interactive_fallback_is_selected_after_login_probe_fails() {
     ));
     assert_eq!(
         fs::read_to_string(args_file).unwrap().as_str(),
-        "--exec\nsh\n-c\nexec setsid --wait bash -ic 'printf \"\\nCACHEBITE_PGID:%s\\n\" \"$$\"; exec codex -s read-only -a untrusted app-server'\n"
+        "--exec\nsh\n-c\nexec setsid --wait bash -ic 'printf \"\\nCACHEBITE_PGID:%s\\n\" \"$$\"; exec codex -s read-only -a never app-server'\n"
     );
     let calls = process.calls.lock().unwrap();
     assert_eq!(calls.len(), 3);
@@ -1312,6 +1350,69 @@ async fn rpc_maps_not_signed_in_error_to_missing_credentials() {
 }
 
 #[tokio::test]
+async fn rpc_reports_that_a_cli_which_answered_before_dying_did_speak() {
+    // Arrange: the CLI answers `initialize` and then the stream ends — an
+    // upstream crash mid-protocol, not a rejected invocation.
+    let session = RpcSession::new(Duration::from_secs(1), 4096);
+
+    // Act
+    let result = session
+        .exchange(b"{\"id\":1,\"result\":{}}\n".as_slice(), &mut Vec::new())
+        .await;
+
+    // Assert: the exchange failed, but the CLI spoke, so the caller must not
+    // relabel its nonzero exit as `CliIncompatible` and tell the user to update
+    // CacheBite for someone else's crash.
+    assert!(result.is_err());
+    assert!(session.saw_response());
+}
+
+#[tokio::test]
+async fn rpc_reports_that_a_cli_which_never_answered_stayed_silent() {
+    // A CLI that rejected our arguments closes stdout without a single line.
+    let session = RpcSession::new(Duration::from_secs(1), 4096);
+    assert!(session
+        .exchange(b"".as_slice(), &mut Vec::new())
+        .await
+        .is_err());
+    assert!(!session.saw_response());
+}
+
+#[tokio::test]
+async fn rpc_counts_an_error_response_as_the_cli_speaking() {
+    // An error envelope is still the CLI talking to us, so the launch was fine.
+    let session = RpcSession::new(Duration::from_secs(1), 4096);
+    let replies = "{\"id\":1,\"error\":{\"code\":-32600,\"message\":\"bad request\"}}\n";
+    assert!(session
+        .exchange(replies.as_bytes(), &mut Vec::new())
+        .await
+        .is_err());
+    assert!(session.saw_response());
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn a_cli_that_crashes_after_answering_keeps_its_own_failure() {
+    let root = tempdir();
+    let executable = root.path().join("crashing-codex.cmd");
+    // Reads our `initialize`, answers it, then dies nonzero — the shape that must
+    // NOT be reported as an incompatible CLI.
+    fs::write(
+        &executable,
+        "@echo off\r\nset /p line=\r\necho {\"id\":1,\"result\":{}}\r\nexit /b 3\r\n",
+    )
+    .unwrap();
+    let executable = fs::canonicalize(executable).unwrap();
+    let collector = CodexCollector::new(executable).unwrap();
+    assert_eq!(
+        collector.collect().await,
+        CollectionOutcome::Failed {
+            class: FailureClass::Parse,
+        }
+    );
+}
+
+#[tokio::test]
 async fn rpc_enforces_timeout_malformed_and_size_limits() {
     let (pending, _open_peer) = tokio::io::duplex(8);
     assert!(matches!(
@@ -1336,6 +1437,76 @@ async fn rpc_enforces_timeout_malformed_and_size_limits() {
             .await,
         Err(CollectorError::ResponseTooLarge)
     ));
+}
+
+#[test]
+fn classify_launch_exit_separates_a_missing_cli_from_a_rejected_invocation() {
+    // A shell reporting "command not found".
+    assert_eq!(
+        classify_launch_exit(Some(127)),
+        Some(CollectorError::CliMissing)
+    );
+    // clap reports a usage error as 2 — codex-cli 0.149.0 dropped
+    // `--ask-for-approval untrusted` and exited exactly this way, which reached
+    // users as an unactionable parse failure.
+    assert_eq!(
+        classify_launch_exit(Some(2)),
+        Some(CollectorError::CliIncompatible)
+    );
+    assert_eq!(
+        classify_launch_exit(Some(1)),
+        Some(CollectorError::CliIncompatible)
+    );
+    assert_eq!(classify_launch_exit(Some(0)), None);
+    // Still running: the failure was genuinely mid-protocol, so the original
+    // error has to stand rather than being relabelled as a rejected launch.
+    assert_eq!(classify_launch_exit(None), None);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_cli_that_rejects_our_arguments_reports_cli_incompatible() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempdir();
+    let executable = root.path().join("rejecting-codex");
+    // Writes a usage error to stderr and exits without ever producing a protocol
+    // line, exactly as codex-cli does for an argument value it no longer accepts.
+    fs::write(
+        &executable,
+        "#!/bin/sh\necho \"error: invalid value\" >&2\nexit 2\n",
+    )
+    .unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    let executable = fs::canonicalize(executable).unwrap();
+    let collector = CodexCollector::new(executable).unwrap();
+    assert_eq!(
+        collector.collect().await,
+        CollectionOutcome::Failed {
+            class: FailureClass::CliIncompatible,
+        }
+    );
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn a_cli_that_rejects_our_arguments_reports_cli_incompatible() {
+    let root = tempdir();
+    let executable = root.path().join("rejecting-codex.cmd");
+    // Same shape as the unix fixture: a usage error on stderr, no protocol line,
+    // nonzero exit.
+    fs::write(
+        &executable,
+        "@echo off\r\necho error: invalid value 1>&2\r\nexit /b 2\r\n",
+    )
+    .unwrap();
+    let executable = fs::canonicalize(executable).unwrap();
+    let collector = CodexCollector::new(executable).unwrap();
+    assert_eq!(
+        collector.collect().await,
+        CollectionOutcome::Failed {
+            class: FailureClass::CliIncompatible,
+        }
+    );
 }
 
 #[cfg(unix)]

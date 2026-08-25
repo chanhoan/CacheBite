@@ -16,7 +16,9 @@
   } = $props();
 
   const name = $derived(PROVIDER_NAME[model.provider]);
-  const guidance = $derived(systemGuidance(model.system, model.provider));
+  const guidance = $derived(
+    systemGuidance(model.system, model.provider, model.failureClass),
+  );
   const captured = $derived(
     model.capturedAt === null ? null : capturedAgo(model.capturedAt, nowMs),
   );

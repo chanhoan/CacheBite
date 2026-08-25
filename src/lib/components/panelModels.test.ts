@@ -18,6 +18,7 @@ const model = (
   planType: null,
   session: { usedPercent: null, severity: 'unknown', resetsAt: null },
   weekly: { usedPercent: null, severity: 'unknown', resetsAt: null },
+  failureClass: null,
   capturedAt: null,
   source: provider === 'claude' ? 'oauth_api' : 'cli_rpc',
   isCached: false,

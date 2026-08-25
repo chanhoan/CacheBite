@@ -18,6 +18,7 @@ const model = (
   capturedAt: '2026-07-16T12:00:00Z',
   source: 'oauth_api',
   isCached: false,
+  failureClass: null,
   ...overrides,
 });
 

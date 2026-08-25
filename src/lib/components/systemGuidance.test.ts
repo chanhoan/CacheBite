@@ -28,6 +28,27 @@ describe('systemGuidance', () => {
     },
   );
 
+  it.each([
+    ['claude' as const, 'The Claude CLI rejected this CacheBite build.'],
+    ['codex' as const, 'The Codex CLI rejected this CacheBite build.'],
+  ])(
+    'tells the user to update when the %s CLI rejected the invocation',
+    (provider, expected) => {
+      expect(systemGuidance('error', provider, 'cli_incompatible')).toBe(
+        `${expected} Update CacheBite.`,
+      );
+    },
+  );
+
+  it.each(['network' as const, 'provider' as const, 'parse' as const])(
+    'keeps the retry line for the recoverable failure class %s',
+    (failureClass) => {
+      expect(systemGuidance('error', 'codex', failureClass)).toBe(
+        'Could not fetch usage. Retrying shortly.',
+      );
+    },
+  );
+
   it.each(['active' as const, 'loading' as const])(
     'stays silent for the non-actionable state %s',
     (system) => {

@@ -28,7 +28,12 @@ export const PROVIDER_NAME: Readonly<Record<Provider, string>> = {
  */
 export type RingMode = 'single' | 'double';
 
-export type FailureClass = 'network' | 'provider' | 'parse' | 'internal';
+export type FailureClass =
+  | 'network'
+  | 'provider'
+  | 'parse'
+  | 'internal'
+  | 'cli_incompatible';
 export type Source = 'oauth_api' | 'cli_rpc';
 export type UnavailableReason = 'not_installed' | 'not_signed_in';
 

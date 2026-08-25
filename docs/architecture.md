@@ -179,13 +179,20 @@ selected at runtime.
 
 The preferred Codex path delegates authentication and rate-limit retrieval to the installed Codex CLI:
 
-1. Start `codex -s read-only -a untrusted app-server` as a hidden child process.
+1. Start `codex -s read-only -a never app-server` as a hidden child process.
 2. Complete the JSON-RPC initialization handshake.
 3. Call `account/rateLimits/read`.
 4. Map `primary` to the five-hour window and `secondary` to the weekly window.
 5. Stop the child process after receiving the response or reaching the timeout.
 
 This path lets Codex own token refresh, proxy behavior, and certificate handling.
+
+The approval policy is `never` because codex-cli 0.149.0 removed `untrusted`,
+leaving only `on-request` and `never`; `-s read-only` remains the sandbox
+boundary, and both flags are root options that must precede the subcommand. A CLI
+that rejects this fixed argument list exits nonzero without ever speaking the
+protocol, which the collector classifies as `cli_incompatible` rather than a
+parse failure — retrying cannot fix a rejected invocation, so the panel says so.
 
 For environments where app-server is unavailable, the collector may call the backend contract used by Codex:
 

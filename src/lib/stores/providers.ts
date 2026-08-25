@@ -84,7 +84,7 @@ export function createProvidersStore(
       backendUpdate: {
         readonly kind: 'credentials_missing' | 'cli_missing' | 'fetch_failed';
         readonly revision: number;
-        readonly failureClass?: 'network' | 'provider' | 'parse' | 'internal';
+        readonly failureClass?: FailureClass;
       },
     ): readonly UsageTransitionEvent[] {
       settleRefresh(provider);
