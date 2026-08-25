@@ -80,4 +80,15 @@ fn collection_outcomes_are_typed_and_credential_free() {
         serde_json::to_string(&outcome).unwrap(),
         r#"{"kind":"failed","class":"parse"}"#
     );
+    // The renderer switches its guidance copy on this exact string
+    // (systemGuidance.ts). Renaming the variant would keep Rust compiling and
+    // keep the TypeScript union valid while the comparison silently went dead,
+    // dropping the panel back to the generic "retrying shortly" line.
+    assert_eq!(
+        serde_json::to_string(&CollectionOutcome::Failed {
+            class: FailureClass::CliIncompatible
+        })
+        .unwrap(),
+        r#"{"kind":"failed","class":"cli_incompatible"}"#
+    );
 }

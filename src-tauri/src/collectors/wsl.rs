@@ -13,9 +13,10 @@ use zeroize::Zeroize;
 
 pub const CLAUDE_CREDENTIAL_SCRIPT: &str = "if [ -n \"${CLAUDE_CONFIG_DIR:-}\" ] && [ -f \"${CLAUDE_CONFIG_DIR}/.credentials.json\" ]; then cat -- \"${CLAUDE_CONFIG_DIR}/.credentials.json\"; elif [ -f \"${HOME}/.claude/.credentials.json\" ]; then cat -- \"${HOME}/.claude/.credentials.json\"; else exit 44; fi";
 pub const CODEX_PROBE_SCRIPT: &str = "bash -lc 'type -P codex >/dev/null 2>&1'";
-pub const CODEX_LAUNCH_SCRIPT: &str = "exec setsid --wait bash -lc 'printf \"\\nCACHEBITE_PGID:%s\\n\" \"$$\"; exec codex -s read-only -a untrusted app-server'";
+// See collectors::codex::app_server_argv for why the approval policy is `never`.
+pub const CODEX_LAUNCH_SCRIPT: &str = "exec setsid --wait bash -lc 'printf \"\\nCACHEBITE_PGID:%s\\n\" \"$$\"; exec codex -s read-only -a never app-server'";
 const CODEX_INTERACTIVE_PROBE_SCRIPT: &str = "bash -ic 'type -P codex >/dev/null 2>&1'";
-const CODEX_INTERACTIVE_LAUNCH_SCRIPT: &str = "exec setsid --wait bash -ic 'printf \"\\nCACHEBITE_PGID:%s\\n\" \"$$\"; exec codex -s read-only -a untrusted app-server'";
+pub(crate) const CODEX_INTERACTIVE_LAUNCH_SCRIPT: &str = "exec setsid --wait bash -ic 'printf \"\\nCACHEBITE_PGID:%s\\n\" \"$$\"; exec codex -s read-only -a never app-server'";
 pub const CODEX_CLEANUP_SCRIPT: &str = "case \"$1\" in ''|*[!0-9]*) exit 1;; esac; if ! kill -0 -- \"-$1\" 2>/dev/null; then exit 0; fi; kill -KILL -- \"-$1\" 2>/dev/null || exit 1; i=0; while kill -0 -- \"-$1\" 2>/dev/null; do i=$((i+1)); [ \"$i\" -lt 20 ] || exit 1; sleep 0.05 || exit 1; done";
 #[cfg(windows)]
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(5);

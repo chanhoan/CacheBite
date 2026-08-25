@@ -33,6 +33,8 @@ pub enum FailureClass {
     Provider,
     Parse,
     Internal,
+    /// The provider CLI is present but rejected this build's fixed invocation.
+    CliIncompatible,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

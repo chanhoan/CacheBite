@@ -74,6 +74,23 @@ describe('renderer presentation projections', () => {
       capturedAt: snapshot.capturedAt,
       source: 'cli_rpc',
       isCached: false,
+      failureClass: null,
     });
+  });
+
+  it('carries the retained failure class so the panel can explain a rejected CLI', () => {
+    // Arrange: the collector reports that the Codex CLI refused this build's
+    // fixed invocation — a failure that never recovers on retry.
+    // Act
+    const rejected = applyProviderUpdate(
+      createProviderState('codex'),
+      { kind: 'fetch_failed', failureClass: 'cli_incompatible', revision: 1 },
+      Date.parse(snapshot.capturedAt),
+    ).state;
+
+    // Assert
+    expect(
+      toProviderPresentation(rejected, Date.parse(snapshot.capturedAt)),
+    ).toMatchObject({ system: 'error', failureClass: 'cli_incompatible' });
   });
 });

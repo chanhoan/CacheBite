@@ -63,6 +63,7 @@ export function toProviderPresentation(
       severity: ui.weeklySeverity,
       resetsAt: state.snapshot?.weekly?.resetsAt ?? null,
     },
+    failureClass: state.lastFailure,
     capturedAt: state.snapshot?.capturedAt ?? null,
     source:
       state.snapshot?.source ??

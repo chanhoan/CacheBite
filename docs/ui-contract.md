@@ -153,7 +153,8 @@ ProviderUiSnapshot = ProviderUsageSnapshot +
 | --- | --- | --- |
 | `auth_required` | 자물쇠 | "Claude CLI에 로그인하세요: `claude login`" |
 | `unavailable` | 슬래시 원 | "Codex CLI가 설치되어 있지 않습니다" |
-| `error` | 경고 삼각형 | "사용량을 가져오지 못했습니다. 잠시 후 재시도합니다" |
+| `error` (일반) | 경고 삼각형 | "사용량을 가져오지 못했습니다. 잠시 후 재시도합니다" |
+| `error` + `cli_incompatible` | 경고 삼각형 (동일) | "Codex CLI가 이 CacheBite 빌드를 거부했습니다. CacheBite를 업데이트하세요" |
 | `offline` | 구름/오프라인 | "네트워크에 연결할 수 없습니다" |
 | `loading` | 스피너 | "사용량을 불러오는 중" |
 

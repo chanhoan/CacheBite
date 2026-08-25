@@ -1,4 +1,4 @@
-import type { Provider } from '../contracts/domain';
+import type { FailureClass, Provider } from '../contracts/domain';
 import type { Severity, SystemState } from '../state/engine';
 
 export interface PanelProviderModel {
@@ -19,6 +19,8 @@ export interface PanelProviderModel {
   readonly capturedAt: string | null;
   readonly source: string;
   readonly isCached: boolean;
+  /** Drives the `error` guidance copy; see `systemGuidance`. */
+  readonly failureClass: FailureClass | null;
 }
 
 /**

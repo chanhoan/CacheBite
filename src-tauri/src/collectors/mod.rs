@@ -17,6 +17,8 @@ pub enum CollectorError {
     CredentialFileInvalid,
     #[error("provider CLI is unavailable")]
     CliMissing,
+    #[error("provider CLI rejected the invocation")]
+    CliIncompatible,
     #[error("provider request failed")]
     Network,
     #[error("provider rejected the request")]
@@ -38,6 +40,12 @@ impl CollectorError {
         match self {
             Self::CredentialsMissing => CollectionOutcome::CredentialsMissing,
             Self::CliMissing => CollectionOutcome::CliMissing,
+            // A CLI that rejected our invocation is installed and reachable, so
+            // `CliMissing` would misdirect the user. It also never recovers on
+            // retry, which is what every other `Failed` class implies.
+            Self::CliIncompatible => CollectionOutcome::Failed {
+                class: FailureClass::CliIncompatible,
+            },
             Self::Network | Self::Timeout => CollectionOutcome::Failed {
                 class: FailureClass::Network,
             },

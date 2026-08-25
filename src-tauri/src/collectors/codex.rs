@@ -6,6 +6,7 @@ use std::{
     ffi::OsStr,
     path::{Path, PathBuf},
     process::Stdio,
+    sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
 use time::OffsetDateTime;
@@ -124,6 +125,7 @@ impl Collector for CodexCollector {
 pub struct RpcSession {
     timeout: Duration,
     max_response_bytes: usize,
+    saw_response: AtomicBool,
 }
 
 impl RpcSession {
@@ -131,7 +133,17 @@ impl RpcSession {
         Self {
             timeout,
             max_response_bytes,
+            saw_response: AtomicBool::new(false),
         }
+    }
+
+    /// Whether the CLI produced at least one well-formed response.
+    ///
+    /// This separates "never spoke the protocol" — the only shape a rejected
+    /// invocation can take — from "spoke, then died", which is an upstream crash.
+    /// `classify_launch_exit` is only meaningful for the former.
+    pub(crate) fn saw_response(&self) -> bool {
+        self.saw_response.load(Ordering::Relaxed)
     }
 
     pub async fn exchange<R, W>(
@@ -147,6 +159,10 @@ impl RpcSession {
             write_request(writer, 1, "initialize", initialize_params()).await?;
             let mut remaining = self.max_response_bytes;
             let initialized = read_matching_response(&mut reader, 1, &mut remaining).await?;
+            // The CLI has now spoken the protocol, so nothing after this point can
+            // be a rejected invocation. Set before validating: an error *response*
+            // is still the CLI talking to us.
+            self.saw_response.store(true, Ordering::Relaxed);
             validate_response(&initialized)?;
             write_notification(writer, "initialized").await?;
             write_request(
@@ -168,15 +184,29 @@ impl RpcSession {
     }
 }
 
+/// The fixed argument list handed to the Codex CLI, extracted so a test can lock
+/// it: these values are a CLI-surface contract, not an implementation detail.
+///
+/// `never` is the most restrictive approval policy codex-cli still accepts.
+/// 0.149.0 dropped `untrusted` and `on-failure`, leaving only `on-request` and
+/// `never`, and the removed value made the CLI reject the whole invocation. This
+/// collector never opens a conversation, so the policy is inert in practice, but
+/// `never` is the one value that cannot escalate out of `-s read-only` by
+/// prompting a human who is not there. Do not relax it to `on-request`, and do
+/// not drop `-a`: without it the policy is inherited from the user's
+/// `config.toml`. `-s` and `-a` are root options and must precede the
+/// `app-server` subcommand.
+pub(crate) fn app_server_argv() -> [&'static str; 5] {
+    ["-s", "read-only", "-a", "never", "app-server"]
+}
+
 pub async fn collect_app_server(
     executable: &Path,
     now: OffsetDateTime,
 ) -> Result<ProviderUsageSnapshot, CollectorError> {
     validate_executable(executable)?;
     let mut command = Command::new(executable);
-    command
-        .args(["-s", "read-only", "-a", "untrusted"])
-        .arg("app-server");
+    command.args(app_server_argv());
     collect_app_server_child(command, now).await
 }
 
@@ -184,28 +214,33 @@ pub async fn collect_app_server_child(
     command: Command,
     now: OffsetDateTime,
 ) -> Result<ProviderUsageSnapshot, CollectorError> {
-    collect_app_server_child_with_options(command, now, Duration::from_secs(10), false).await
+    collect_app_server_child_with_options(command, now, Duration::from_secs(10)).await
 }
 
 pub(crate) async fn collect_app_server_child_with_options(
     command: Command,
     now: OffsetDateTime,
     timeout: Duration,
-    exit_127_is_cli_missing: bool,
 ) -> Result<ProviderUsageSnapshot, CollectorError> {
     let mut child = spawn_managed_app_server(command)?;
     let mut stdin = child.stdin().ok_or(CollectorError::Internal)?;
     let stdout = child.stdout().ok_or(CollectorError::Internal)?;
-    let result = RpcSession::new(timeout, MAX_RESPONSE_BYTES)
-        .exchange(stdout, &mut stdin)
-        .await;
+    let session = RpcSession::new(timeout, MAX_RESPONSE_BYTES);
+    let result = session.exchange(stdout, &mut stdin).await;
     drop(stdin);
-    let missing_cli = exit_127_is_cli_missing
-        && result.is_err()
-        && child.exit_code_with_grace().await == Some(127);
+    // Read the exit status before terminating: afterwards every child looks
+    // killed, and a CLI that died on its own becomes indistinguishable from one
+    // this collector shot. Only a CLI that never answered can have been rejected
+    // at launch — one that answered and then died crashed, and must keep its own
+    // error instead of telling the user to update CacheBite.
+    let launch_failure = if result.is_err() && !session.saw_response() {
+        classify_launch_exit(child.exit_code_with_grace().await)
+    } else {
+        None
+    };
     child.terminate().await;
-    if missing_cli {
-        return Err(CollectorError::CliMissing);
+    if let Some(error) = launch_failure {
+        return Err(error);
     }
     let limits = result?;
     normalize(limits, now)
@@ -229,12 +264,24 @@ where
         .await
         .map_err(|_| CollectorError::Timeout)
         .and_then(|result| result)?;
-    let result = RpcSession::new(timeout, MAX_RESPONSE_BYTES)
-        .exchange(reader, &mut stdin)
-        .await;
+    let session = RpcSession::new(timeout, MAX_RESPONSE_BYTES);
+    let result = session.exchange(reader, &mut stdin).await;
     drop(stdin);
+    // Same rules as collect_app_server_child_with_options: read the exit status
+    // before cleanup or terminate touches the child, and only reclassify a CLI
+    // that never answered.
+    let launch_failure = if result.is_err() && !session.saw_response() {
+        classify_launch_exit(child.exit_code_with_grace().await)
+    } else {
+        None
+    };
     let cleanup_result = cleanup(pgid).await;
     child.terminate().await;
+    // A rejected invocation outranks a cleanup failure: it is the one the user
+    // can act on, and a CLI that never started leaves nothing to clean up.
+    if let Some(error) = launch_failure {
+        return Err(error);
+    }
     cleanup_result?;
     let limits = result?;
     normalize(limits, now)
@@ -336,6 +383,25 @@ pub(crate) fn parse_pgid_handshake(line: &[u8]) -> Result<u32, CollectorError> {
         return Err(CollectorError::Protocol);
     }
     Ok(pgid)
+}
+
+/// Classifies a child that exited on its own without ever speaking the protocol.
+///
+/// Callers must establish that precondition themselves by checking
+/// `RpcSession::saw_response`; this function only reads the status. 127 is a
+/// shell reporting "command not found", so the CLI is absent. Any other nonzero
+/// status means the CLI is installed but refused this build's fixed argument list
+/// — clap reports a usage error as 2, which is exactly how codex-cli 0.149.0
+/// dropping `--ask-for-approval untrusted` surfaced, but the rule stays broad so
+/// a CLI that rejects us with some other status is not silently swallowed.
+/// `None` means the child was still running, so the failure was genuinely
+/// mid-protocol and the original error must stand.
+pub(crate) fn classify_launch_exit(code: Option<i32>) -> Option<CollectorError> {
+    match code {
+        Some(127) => Some(CollectorError::CliMissing),
+        Some(code) if code != 0 => Some(CollectorError::CliIncompatible),
+        _ => None,
+    }
 }
 
 pub(crate) fn classify_spawn_error(kind: std::io::ErrorKind) -> CollectorError {
