@@ -129,7 +129,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: Get-ChildItem ${{ matrix.bundle_root }} -Recurse -File | Get-FileHash -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path)" } | Set-Content SHA256SUMS.txt
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.artifact }}
           path: |
@@ -269,7 +269,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: pnpm tauri build --config src-tauri/tauri.release.conf.json --bundles dmg --target universal-apple-darwin
       - run: find src-tauri/target/universal-apple-darwin/release/bundle/dmg -type f -print0 | sort -z | xargs -0 shasum -a 256 > SHA256SUMS.txt
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: macos-signed-notarized-dmg
           path: |
